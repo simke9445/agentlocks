@@ -484,6 +484,119 @@ test("prune dry-run reports reclaimable locks without deleting", async () => {
   });
 });
 
+test("acquire reclaimConflicts takes over reclaimable conflicts in one command", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const registry = testRegistry(
+      workspace,
+      () => now,
+      () => ({
+        status: "dead",
+        evidence: "fixture dead",
+      }),
+    );
+    const first = await registry.acquire({
+      paths: ["hot.ts"],
+      reason: "edit hot",
+      ttlMs: 1000,
+      agentId: "session-a",
+    });
+    now = new Date("2026-05-04T10:05:00Z");
+
+    const blocked = await registry.acquire({
+      paths: ["hot.ts"],
+      reason: "take over",
+      agentId: "session-b",
+    });
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.suggestedAction).toBe("prune_then_retry");
+
+    const taken = await registry.acquire({
+      paths: ["hot.ts"],
+      reason: "take over",
+      agentId: "session-b",
+      reclaimConflicts: true,
+    });
+    expect(taken.exitCode).toBe(0);
+    const firstId = first.lock?.lockId ?? "";
+    expect(taken.reclaimed?.map((lock) => lock.lockId)).toEqual([firstId]);
+
+    const status = await registry.status({ paths: ["hot.ts"] });
+    expect(status.locks).toHaveLength(1);
+    const owner = status.locks?.[0]?.lock.owner;
+    expect(owner ? lockOwnerAgentId(owner) : null).toBe("session-b");
+  });
+});
+
+test("acquire reclaimConflicts still blocks when a conflict is not reclaimable", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const registry = testRegistry(
+      workspace,
+      () => now,
+      (owner) =>
+        lockOwnerAgentId(owner) === "session-live"
+          ? { status: "live", evidence: "alive" }
+          : { status: "dead", evidence: "dead" },
+    );
+    await registry.acquire({
+      paths: ["a.ts"],
+      reason: "edit a",
+      ttlMs: 1000,
+      agentId: "session-a",
+    });
+    await registry.acquire({
+      paths: ["b.ts"],
+      reason: "edit b",
+      ttlMs: 1000,
+      agentId: "session-live",
+    });
+    now = new Date("2026-05-04T10:05:00Z");
+
+    const blocked = await registry.acquire({
+      globs: ["*.ts"],
+      reason: "format",
+      agentId: "session-b",
+      reclaimConflicts: true,
+    });
+    expect(blocked.exitCode).toBe(3);
+    expect((await registry.status()).locks).toHaveLength(2);
+  });
+});
+
+test("keep-alive extends an agent's recent siblings but not stale over-grabs", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const registry = testRegistry(workspace, () => now);
+    await registry.acquire({
+      paths: ["a.ts"],
+      reason: "edit a",
+      ttlMs: 60_000,
+      agentId: "session-a",
+    });
+
+    now = new Date("2026-05-04T10:00:30Z");
+    await registry.acquire({
+      paths: ["b.ts"],
+      reason: "edit b",
+      ttlMs: 60_000,
+      agentId: "session-a",
+    });
+    const warmed = (await registry.status({ paths: ["a.ts"] })).locks?.[0]?.lock;
+    expect(warmed && Date.parse(warmed.leaseExpiresAt)).toBe(Date.parse("2026-05-04T10:01:30Z"));
+
+    now = new Date("2026-05-04T11:00:00Z");
+    await registry.acquire({
+      paths: ["c.ts"],
+      reason: "edit c",
+      ttlMs: 60_000,
+      agentId: "session-a",
+    });
+    const stale = (await registry.status({ paths: ["a.ts"] })).locks?.[0]?.lock;
+    expect(stale && Date.parse(stale.leaseExpiresAt)).toBe(Date.parse("2026-05-04T10:01:30Z"));
+  });
+});
+
 function testRegistry(
   workspace: string,
   now: Date | (() => Date),

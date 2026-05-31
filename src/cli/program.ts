@@ -30,6 +30,7 @@ interface LockAcquireOptions extends LockOutputOptions {
   reason: string;
   ttlMs?: number;
   agentId?: string;
+  reclaim?: boolean;
 }
 
 interface LockExpandOptions extends LockOutputOptions {
@@ -143,6 +144,10 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .requiredOption("--reason <text>", "Human-readable lock intent.")
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+      .option(
+        "--reclaim",
+        "Reclaim overlapping locks first when every conflict is already reclaimable, then acquire in one command.",
+      )
       .allowExcessArguments(false),
   ).action((paths: string[], _options: LockAcquireOptions, command: Command) => {
     const options = command.opts<LockAcquireOptions>();
@@ -156,6 +161,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
+          ...(options.reclaim ? { reclaimConflicts: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },

@@ -94,6 +94,7 @@ export interface LockOperationResult {
   resources?: LockResource[];
   conflicts?: LockConflict[];
   pruned?: FileLockRecord[];
+  reclaimed?: FileLockRecord[];
   dryRun?: boolean;
   owner?: LockOwner;
 }
@@ -112,6 +113,7 @@ export type LockCommand =
       reason: string;
       ttlMs: number | null;
       agentId: string | null;
+      reclaimConflicts?: boolean;
     } & LockCommandOutputOptions)
   | ({
       name: "expand";

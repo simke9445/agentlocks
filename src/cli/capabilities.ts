@@ -95,7 +95,14 @@ export function lockpickCapabilities(): LockpickCapabilities {
         json: true,
         id_only: true,
         verbose: true,
-        flags: [...RESOURCE_FLAGS, "--reason", ...TTL_FLAGS, ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
+        flags: [
+          ...RESOURCE_FLAGS,
+          "--reason",
+          ...TTL_FLAGS,
+          "--reclaim",
+          ...AGENT_FLAGS,
+          ...LOCK_OUTPUT_FLAGS,
+        ],
         required: ["--reason", "path-or-glob"],
         exit_codes: [0, 2, 3],
         next: [

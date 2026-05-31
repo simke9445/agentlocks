@@ -45,6 +45,8 @@ export async function executeLockCommand(
     defaultTtlMs: config.defaults.ttlMs,
     maxTtlMs: config.defaults.maxTtlMs,
     unknownLivenessGraceMs: config.defaults.unknownLivenessGraceMs,
+    autoReclaimOnConflict: config.defaults.autoReclaimOnConflict,
+    keepAliveOnMutation: config.defaults.keepAliveOnMutation,
     sessionProbe:
       config.liveness.adapter === "codex"
         ? probeCodexSessionLiveness
@@ -65,6 +67,9 @@ export async function executeLockCommand(
           reason: command.reason,
           ttlMs: command.ttlMs,
           agentId: command.agentId,
+          ...(command.reclaimConflicts !== undefined
+            ? { reclaimConflicts: command.reclaimConflicts }
+            : {}),
         }),
       );
       break;
@@ -163,7 +168,17 @@ function renderCommandResults(
 
 function compactLockJson(result: LockOperationResult): Record<string, unknown> {
   switch (result.kind) {
-    case "acquired":
+    case "acquired": {
+      const base = {
+        kind: result.kind,
+        exitCode: result.exitCode,
+        lock_id: result.lock?.lockId ?? null,
+      };
+      if (result.reclaimed && result.reclaimed.length > 0) {
+        return { ...base, reclaimed_lock_ids: result.reclaimed.map((lock) => lock.lockId) };
+      }
+      return base;
+    }
     case "refreshed":
     case "released":
       return {
@@ -252,6 +267,9 @@ export function renderLockResult(
       if (!verbose) return `lock acquired: ${result.lock?.lockId ?? "<unknown>"}`;
       return [
         `lock acquired: ${result.lock?.lockId ?? "<unknown>"}`,
+        ...(result.reclaimed && result.reclaimed.length > 0
+          ? [`reclaimed: ${result.reclaimed.map((lock) => lock.lockId).join(", ")}`]
+          : []),
         ...renderResources(result.lock?.resources ?? []),
       ].join("\n");
     case "conflict":

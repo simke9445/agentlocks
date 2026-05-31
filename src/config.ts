@@ -35,6 +35,13 @@ export interface LockpickDefaultsConfig {
   ttlMs?: number;
   maxTtlMs?: number;
   unknownLivenessGraceMs?: number;
+  // When true, an acquire whose every overlapping conflict is already
+  // reclaimable prunes those locks and proceeds in one command. Off by default
+  // so the explicit prune-then-retry recovery stays the generic behavior.
+  autoReclaimOnConflict?: boolean;
+  // When true, an agent's own mutating command extends its other held leases,
+  // so a working agent rarely emits a dedicated refresh.
+  keepAliveOnMutation?: boolean;
 }
 
 export interface LockpickAgentsConfig {
@@ -138,6 +145,8 @@ export function resolveLockpickConfig(
         DEFAULT_UNKNOWN_LIVENESS_GRACE_MS,
         "unknownLivenessGraceMs",
       ),
+      autoReclaimOnConflict: config.defaults?.autoReclaimOnConflict ?? false,
+      keepAliveOnMutation: config.defaults?.keepAliveOnMutation ?? true,
     },
     owner,
     liveness: { adapter: config.liveness?.adapter ?? "auto" },

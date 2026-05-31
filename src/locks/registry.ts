@@ -42,6 +42,8 @@ export interface FileLockRegistryOptions {
   defaultTtlMs?: number;
   maxTtlMs?: number;
   unknownLivenessGraceMs?: number;
+  autoReclaimOnConflict?: boolean;
+  keepAliveOnMutation?: boolean;
 }
 
 export interface LockResourceRequest {
@@ -54,6 +56,7 @@ export interface AcquireLockParams extends LockResourceRequest {
   reason: string;
   ttlMs?: number | null;
   agentId?: string | null;
+  reclaimConflicts?: boolean;
 }
 
 export interface ExpandLockParams extends LockResourceRequest {
@@ -77,6 +80,8 @@ export class FileLockRegistry {
   private readonly defaultTtlMs: number;
   private readonly maxTtlMs: number;
   private readonly unknownLivenessGraceMs: number;
+  private readonly autoReclaimOnConflict: boolean;
+  private readonly keepAliveOnMutation: boolean;
 
   constructor(options: FileLockRegistryOptions = {}) {
     this.cwd = path.resolve(options.cwd ?? process.cwd());
@@ -96,6 +101,8 @@ export class FileLockRegistry {
     this.maxTtlMs = options.maxTtlMs ?? MAX_LOCK_TTL_MS;
     this.unknownLivenessGraceMs =
       options.unknownLivenessGraceMs ?? DEFAULT_UNKNOWN_LIVENESS_GRACE_MS;
+    this.autoReclaimOnConflict = options.autoReclaimOnConflict ?? false;
+    this.keepAliveOnMutation = options.keepAliveOnMutation ?? true;
   }
 
   identify(agentId?: string | null): LockOperationResult {
@@ -120,7 +127,19 @@ export class FileLockRegistry {
     return this.withMutex(async () => {
       const locks = await this.readActiveLocks();
       const conflicts = await this.findConflicts(resources, locks, now);
-      if (conflicts.length > 0) return conflictResult(resources, conflicts);
+      let reclaimed: FileLockRecord[] = [];
+      if (conflicts.length > 0) {
+        const allReclaimable = conflicts.every((conflict) => conflict.status === "reclaimable");
+        const reclaimRequested = params.reclaimConflicts ?? this.autoReclaimOnConflict;
+        if (!(reclaimRequested && allReclaimable)) return conflictResult(resources, conflicts);
+        reclaimed = conflicts.map((conflict) => conflict.lock);
+        await this.reclaimLocks(reclaimed, {
+          cause: "auto-reclaim",
+          reclaimedBy: lockOwnerAgentId(owner),
+        });
+        const residual = await this.findConflicts(resources, await this.readActiveLocks(), now);
+        if (residual.length > 0) return conflictResult(resources, residual);
+      }
 
       const lock: FileLockRecord = {
         schemaVersion: LOCK_SCHEMA_VERSION,
@@ -136,12 +155,14 @@ export class FileLockRegistry {
       };
       await this.writeLock(lock);
       await this.appendEvent("acquired", lock, { resources });
+      await this.extendOwnSiblingLeases(lockOwnerAgentId(owner), lock.lockId, now);
       return {
         kind: "acquired",
         exitCode: 0,
         suggestedAction: "acquired",
         lock,
         resources,
+        ...(reclaimed.length > 0 ? { reclaimed } : {}),
       };
     });
   }
@@ -179,6 +200,7 @@ export class FileLockRegistry {
       };
       await this.writeLock(lock);
       await this.appendEvent("expanded", lock, { resources });
+      await this.extendOwnSiblingLeases(lockOwnerAgentId(lock.owner), lock.lockId, now);
       return {
         kind: "refreshed",
         exitCode: 0,
@@ -210,6 +232,7 @@ export class FileLockRegistry {
       };
       await this.writeLock(refreshed);
       await this.appendEvent("refreshed", refreshed, {});
+      await this.extendOwnSiblingLeases(lockOwnerAgentId(refreshed.owner), refreshed.lockId, now);
       return {
         kind: "refreshed",
         exitCode: 0,
@@ -269,10 +292,7 @@ export class FileLockRegistry {
           dryRun: true,
         };
       }
-      for (const lock of pruned) {
-        await fs.rm(this.lockPath(lock.lockId), { force: true });
-        await this.appendEvent("pruned", lock, {});
-      }
+      await this.reclaimLocks(pruned, {});
       return {
         kind: "pruned",
         exitCode: 0,
@@ -281,6 +301,41 @@ export class FileLockRegistry {
         dryRun: false,
       };
     });
+  }
+
+  private async reclaimLocks(
+    locks: FileLockRecord[],
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    for (const lock of locks) {
+      await fs.rm(this.lockPath(lock.lockId), { force: true });
+      await this.appendEvent("pruned", lock, details);
+    }
+  }
+
+  private async extendOwnSiblingLeases(
+    callerAgentId: string,
+    primaryLockId: string,
+    now: Date,
+  ): Promise<void> {
+    if (!this.keepAliveOnMutation) return;
+    const locks = await this.readActiveLocks();
+    const createdFloor = now.getTime() - this.maxTtlMs;
+    for (const lock of locks) {
+      if (lock.lockId === primaryLockId) continue;
+      if (lockOwnerAgentId(lock.owner) !== callerAgentId) continue;
+      const created = Date.parse(lock.createdAt);
+      // Do not keep an over-grab alive forever: a lock older than the max lease
+      // is allowed to lapse and reclaim on its own schedule.
+      if (!Number.isFinite(created) || created <= createdFloor) continue;
+      const refreshed: FileLockRecord = {
+        ...lock,
+        lastHeartbeatAt: iso(now),
+        leaseExpiresAt: iso(new Date(now.getTime() + lock.ttlMs)),
+      };
+      await this.writeLock(refreshed);
+      await this.appendEvent("refreshed", refreshed, { cause: "keep-alive" });
+    }
   }
 
   private identifyOwner(agentId: string | null) {

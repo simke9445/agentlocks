@@ -19,11 +19,18 @@ Or bundle lock, act, and release in one command:
 
 Commit with the shared Git index:
 - lockpick git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
+  (prints two lines: the git lock id, then a fence token)
 - git add <locked_paths>
 - git commit
-- lockpick git end <git_lock_id> --release-lock <lock_id>
+- lockpick git end <git_lock_id> --git-token <token> --release-lock <lock_id>
+
+Verify before a raw commit:
+- lockpick git verify --staged          (advisory; never blocks)
+  Covers ordinary commit / commit -a / --amend; rebase/cherry-pick/revert/squash bypass it.
+  Prefer `lockpick commit` for the coordinated path.
 
 Recover:
+- If you lost your lock ids, run lockpick status --mine, then lockpick release --mine / refresh --mine.
 - If a conflict returns prune_then_retry, run lockpick prune --dry-run --json, then lockpick prune.
 - If an unknown flag error prints next:, run that exact command.
 - If ownership fails, continue from the same harness agent or work on unlocked files.

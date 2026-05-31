@@ -5,12 +5,15 @@ export interface InitCommandOptions {
   json: boolean;
   verbose: boolean;
   harness: InitHarness;
+  commitHook?: boolean;
 }
 
 export async function runInitCommand(options: InitCommandOptions): Promise<void> {
   const result = await runInit({
     check: options.check,
     harness: options.harness,
+    // Default-on: install the commit-hook backstop unless explicitly disabled (--no-commit-hook).
+    commitHook: options.commitHook !== false,
   });
   if (options.json) {
     console.log(JSON.stringify(options.verbose ? result : compactInitResult(result, options)));

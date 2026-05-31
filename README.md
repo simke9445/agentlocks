@@ -125,9 +125,9 @@ doctor reports ok true after init completes.
 | Manual notes in chat or issues | Informal coordination and intent | No lease, no owner check, no parseable status, easy to forget before staging |
 | Shell scripts | Local conventions around one repo | Usually miss conflict semantics, stale sessions, JSON contracts, and Git-index locking |
 | `flock` | Process-level critical sections on one machine | Not a repo resource registry; no path/glob inventory, owner metadata, install guidance, or agent docs |
-| Git hooks | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers |
+| Git-native hooks (`pre-commit`) | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers, and a single `core.hooksPath` collides with husky/lefthook |
 | Hosted lock service | Cross-machine coordination | Requires a service, credentials, network access, and operational ownership |
-| Lockpick | Local agents in one repository worktree | Advisory only; participants must opt in and use the commands |
+| Lockpick | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call — installs no git hook and never reconfigures your git |
 
 ## Install Details
 
@@ -160,9 +160,14 @@ repository that should use advisory locking.
 | `AGENTS.md` | Marked Lockpick instructions block by default |
 | `CLAUDE.md` | Marked instructions block when `--harness claude-code` is used |
 | `.claude/settings.json` | Adds a Claude Code `PreToolUse` hook when `--harness claude-code` is used |
-| `.claude/hooks/lockpick-agent-env.mjs` | Per-Bash-call agent id hook for Claude Code subagents |
+| `.claude/hooks/lockpick-agent-env.mjs` | Per-Bash-call agent id hook; **by default also runs `git verify` before a `git commit` tool-call** (one script, advisory; pass `--no-commit-hook` for the id-injection-only body) |
+| `.codex/hooks.json` + `.codex/hooks/lockpick-git-verify.mjs` | Codex `PreToolUse` commit-hook backstop when `--harness codex` is used (project-local hooks need trust before they run) |
 | `.gitignore` | Adds `.lockpick/` |
 | `package.json` | Adds missing recommended scripts when a package file exists |
+
+The commit-hook backstop is advisory: it surfaces staged-but-unlocked paths before a `git commit` tool-call and
+**never blocks the commit**. It is installed by default; `lockpick init --no-commit-hook` keeps the original
+id-injection-only Claude hook and skips the Codex hook.
 
 Recommended host scripts inserted when absent:
 
@@ -216,14 +221,27 @@ and a supported agent harness. Codex and Claude Code identity is automatic.
    lockpick refresh <lock_id> --id-only
    ```
 
-6. Coordinate the shared Git index.
+6. Coordinate the shared Git index. `git begin --id-only` prints two lines: the git lock id, then a
+   fence token that `git end` re-checks (it aborts with exit 3 if the lease was reclaimed mid-commit).
 
    ```bash
-   git_lock="$(lockpick git begin --refresh-lock <lock_id> --reason "commit Lockpick change" --id-only)"
+   { read git_lock; read git_token; } < <(lockpick git begin --refresh-lock <lock_id> --reason "commit Lockpick change" --id-only)
    git add <locked_paths>
    git commit
-   lockpick git end "$git_lock" --release-lock <lock_id> --id-only
+   lockpick git end "$git_lock" --git-token "$git_token" --release-lock <lock_id> --id-only
    ```
+
+   Or let `lockpick commit` do all of it (lock, stage, commit, fence, release) in one command.
+
+7. Before a *raw* `git commit`, sanity-check coverage (advisory; never blocks):
+
+   ```bash
+   lockpick git verify --json     # lists any staged-but-unlocked paths
+   ```
+
+   This is what the opt-out PreToolUse commit-hook backstop runs automatically. If you ever lose your
+   lock ids (e.g. after context compaction), recover with `lockpick status --mine` and
+   `lockpick release --mine` / `lockpick refresh --mine`.
 
 ## Command Reference
 
@@ -234,18 +252,19 @@ default TTLs, agent identity detection, and next commands.
 | --- | --- | --- | --- |
 | `acquire [paths...]` | Acquire locks for exact repo-relative paths or globs | `--glob`, `--reason`, `--ttl-ms`, `--reclaim`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--reason` and at least one path or glob are required; `--reclaim` takes over conflicts that are all reclaimable |
 | `expand --lock <id> [paths...]` | Add paths or globs to an existing lock atomically | `--lock`, `--glob`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
-| `refresh [locks...]` | Extend held lock leases | `--lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Positional ids and repeatable `--lock` are merged |
-| `release [locks...]` | Release held locks | `--lock`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
-| `status [paths...]` | List active locks, optionally filtered by resources | `--glob`, `--json`, `--id-only`, `--verbose` | `--id-only` prints active matching lock ids; compact JSON includes each lock's status |
-| `board [paths...]` | Who/What/Where overview grouped by agent, with each lease's state | `--glob`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
+| `refresh [locks...]` | Extend held lock leases, or all of yours with `--mine` | `--lock`, `--mine`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Positional ids and repeatable `--lock` are merged; `--mine` needs a stable identity |
+| `release [locks...]` | Release held locks, or all of yours with `--mine` | `--lock`, `--mine`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--mine` drops every lock you hold (no ids needed); rejects an unstable identity with exit 2 |
+| `status [paths...]` | List active locks, filtered by resources or `--mine` | `--glob`, `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes each lock's status |
+| `board [paths...]` | Who/What/Where overview grouped by agent, with each lease's state | `--glob`, `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
 | `prune` | Remove reclaimable expired locks | `--dry-run`, `--json`, `--id-only`, `--verbose` | Use `--dry-run` before deleting |
 | `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; use `identify --json` |
-| `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first |
-| `git end [locks...]` | Release the synthetic Git-index lock | `--lock`, `--release-lock`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can release file locks after the Git lock |
+| `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first; `--id-only` prints two lines: the lock id, then a fence token |
+| `git end [locks...]` | Release the synthetic Git-index lock | `--lock`, `--release-lock`, `--git-token`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--git-token` re-checks the fence before releasing; can release file locks after |
+| `git verify` | Advisory check: are staged paths covered by a held lock? | `--staged`, `--include-unstaged`, `--pathspec`, `--pathspec-mode`, `--json`, `--verbose` | Read-only, never blocks, always exits 0; the engine behind the commit-hook backstop |
 | `run [paths...] -- <cmd>` | Acquire locks, run the command after `--`, then release | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | The wrapped command runs outside the registry mutex; exit code is the command's |
 | `edit [paths...] -- <cmd>` | Acquire locks, run the command after `--`, and keep the lock | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | Prints the lock id so you can refresh or release it across turns |
 | `commit [paths...]` | Lock the paths and the Git index, stage and commit only those paths, then release | `--glob`, `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | Pathspec-scoped `git add`/`git commit`; `--keep` retains the file lock |
-| `init` | Initialize or check host support files | `--check`, `--harness auto\|codex\|claude-code`, `--json`, `--verbose` | `--check` exits 1 when changes are needed and writes nothing |
+| `init` | Initialize or check host support files | `--check`, `--harness auto\|codex\|claude-code`, `--no-commit-hook`, `--json`, `--verbose` | Installs the PreToolUse commit-hook backstop by default; `--no-commit-hook` skips it; `--check` exits 1 on drift |
 | `capabilities` | Print the CLI contract | `--json` | Compact single-line JSON |
 | `robot-docs guide` | Print an in-tool agent workflow guide | none | Human text, deterministic golden-tested output |
 | `doctor` | Run read-only health checks | `--json`, `--verbose` | Exits 1 when warnings or errors are present |

@@ -47,15 +47,25 @@ interface LockRefreshOptions extends LockOutputOptions {
   lock?: string[];
   ttlMs?: number;
   agentId?: string;
+  mine?: boolean;
 }
 
 interface LockReleaseOptions extends LockOutputOptions {
   lock?: string[];
   agentId?: string;
+  mine?: boolean;
 }
 
 interface LockStatusOptions extends LockOutputOptions {
   glob?: string[];
+  mine?: boolean;
+}
+
+interface LockGitVerifyOptions extends LockOutputOptions {
+  staged?: boolean;
+  includeUnstaged?: boolean;
+  pathspec?: string[];
+  pathspecMode?: "only" | "include";
 }
 
 interface LockIdentifyOptions extends LockOutputOptions {
@@ -77,6 +87,7 @@ interface LockGitEndOptions extends LockOutputOptions {
   lock?: string[];
   releaseLock?: string[];
   agentId?: string;
+  gitToken?: string;
 }
 
 interface InitCliOptions {
@@ -84,6 +95,8 @@ interface InitCliOptions {
   json?: boolean;
   verbose?: boolean;
   harness?: InitHarness;
+  // commander sets this to `false` only when `--no-commit-hook` is passed (default-on).
+  commitHook?: boolean;
 }
 
 interface WrappedRunOptions {
@@ -229,6 +242,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .option("--lock <lock_id>", "Lock id; repeatable.", collectValues, [])
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+      .option("--mine", "Refresh every lock you hold (no ids); requires a stable identity.")
       .allowExcessArguments(false),
   ).action((locks: string[], _options: LockRefreshOptions, command: Command) => {
     const options = command.opts<LockRefreshOptions>();
@@ -240,6 +254,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           lockIds: mergeLockIds(options.lock, locks),
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
+          ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },
@@ -255,6 +270,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .argument("[locks...]", "Lock ids; equivalent to repeatable --lock.")
       .option("--lock <lock_id>", "Lock id; repeatable.", collectValues, [])
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+      .option("--mine", "Release every lock you hold (no ids); requires a stable identity.")
       .allowExcessArguments(false),
   ).action((locks: string[], _options: LockReleaseOptions, command: Command) => {
     const options = command.opts<LockReleaseOptions>();
@@ -265,6 +281,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           name: "release",
           lockIds: mergeLockIds(options.lock, locks),
           agentId: options.agentId ?? null,
+          ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },
@@ -279,6 +296,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .description("Show active locks, optionally filtered by requested resources.")
       .argument("[paths...]", "Repo-relative file paths.")
       .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
   ).action((paths: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
@@ -289,6 +307,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           name: "status",
           paths,
           globs: options.glob ?? [],
+          ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },
@@ -305,6 +324,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       )
       .argument("[paths...]", "Repo-relative file paths.")
       .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
   ).action((paths: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
@@ -315,6 +335,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           name: "board",
           paths,
           globs: options.glob ?? [],
+          ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },
@@ -421,6 +442,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
         [],
       )
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+      .option("--git-token <token>", "Fence token from `git begin`; re-checked before release.")
       .allowExcessArguments(false),
   ).action((locks: string[], _options: LockGitEndOptions, command: Command) => {
     const options = command.opts<LockGitEndOptions>();
@@ -432,6 +454,46 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
           lockIds: mergeLockIds(options.lock, locks),
           releaseLockIds: options.releaseLock ?? [],
           agentId: options.agentId ?? null,
+          ...(options.gitToken !== undefined ? { gitToken: options.gitToken } : {}),
+          json: Boolean(options.json),
+          idOnly: Boolean(options.idOnly),
+        },
+        options,
+      ),
+    });
+  });
+
+  addLockOutputOptions(
+    git
+      .command("verify")
+      .description("Advisory check: are staged paths covered by a held lock? (never blocks)")
+      .option("--staged", "Verify the staged index (default).")
+      .option(
+        "--include-unstaged",
+        "Also include tracked-but-unstaged changes (for `git commit -a`).",
+      )
+      .option(
+        "--pathspec <path>",
+        "Restrict/extend to a pathspec; repeatable (for pathspec commits).",
+        collectValues,
+        [],
+      )
+      .option(
+        "--pathspec-mode <mode>",
+        "How a pathspec applies: only | include.",
+        parsePathspecMode,
+      )
+      .allowExcessArguments(false),
+  ).action((_options: LockGitVerifyOptions, command: Command) => {
+    const options = command.opts<LockGitVerifyOptions>();
+    onCommand?.({
+      kind: "lock",
+      command: withLockVerbose(
+        {
+          name: "git-verify",
+          includeUnstaged: Boolean(options.includeUnstaged),
+          pathspec: options.pathspec ?? [],
+          pathspecMode: options.pathspecMode ?? null,
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
         },
@@ -529,6 +591,10 @@ function addInitCommand(program: Command, onCommand?: (command: CliCommand) => v
     )
     .option("--json", "Print machine-readable output.")
     .option("--verbose", "Include full init JSON details.")
+    .option(
+      "--no-commit-hook",
+      "Skip the PreToolUse commit-hook backstop (installed by default for the resolved harness).",
+    )
     .allowExcessArguments(false)
     .action((_options: InitCliOptions, command: Command) => {
       const options = command.opts<InitCliOptions>();
@@ -539,6 +605,7 @@ function addInitCommand(program: Command, onCommand?: (command: CliCommand) => v
           json: Boolean(options.json),
           verbose: Boolean(options.verbose),
           harness: options.harness ?? "auto",
+          commitHook: options.commitHook !== false,
         },
       });
     });
@@ -629,6 +696,11 @@ function collectValues(value: string, previous: string[]): string[] {
 function parseInitHarness(value: string): InitHarness {
   if (value === "auto" || value === "codex" || value === "claude-code") return value;
   throw new InvalidArgumentError(`Expected auto, codex, or claude-code, got ${value}`);
+}
+
+function parsePathspecMode(value: string): "only" | "include" {
+  if (value === "only" || value === "include") return value;
+  throw new InvalidArgumentError(`Expected only or include, got ${value}`);
 }
 
 function mergeLockIds(optionLocks: string[] | undefined, positional: string[]): string[] {

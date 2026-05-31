@@ -3,6 +3,40 @@
 All notable changes to Lockpick are documented here. Lockpick is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## 0.4.0
+
+### Added
+
+- **`lockpick git verify`** — a read-only, advisory check answering "is each staged path covered by a
+  held lock?". It never blocks and always exits 0. Coverage is direction-aware (a held glob covers a
+  matching path; a held narrow path does not cover a broader request) over non-reclaimable locks, and
+  it computes the effective committed set per commit form: `--include-unstaged` (for `git commit -a`),
+  `--pathspec <p>` with `--pathspec-mode only|include` (for pathspec / `--only` / `--include` commits).
+  It reads lock state without ever writing `.lockpick/` and never performs a network/update check.
+- **PreToolUse commit-hook backstop for Claude Code and Codex, installed by default** by `lockpick init`
+  (opt out with `--no-commit-hook`). It runs `git verify` before a `git commit` tool-call and surfaces
+  staged-but-unlocked (or foreign-locked) paths — advisory only, it never blocks the commit. The Claude
+  hook is merged into the existing per-Bash agent-id script (one process, not two); the Codex hook is a
+  `^Bash$` `PreToolUse` entry under `.codex/` with a git-root-stable path. No git hook is installed and
+  your git config is never touched.
+- **`--mine` lost-id recovery** — `status --mine` / `board --mine` show only your locks; `release --mine`
+  and `refresh --mine` operate over every lock you hold with no ids. The `--mine` mutates require a
+  stable identity (harness id, `--agent-id`, or `LOCKPICK_AGENT_ID`) and reject an unstable per-process
+  or bare-session identity with exit 2.
+- **`@git/index` fencing** — `git begin` stamps a monotonic generation (persisted under
+  `.lockpick/locks/`) onto the index lease and `git begin --id-only` now prints two lines: the lock id,
+  then a shell-safe fence token. `git end` / `commit` accept `--git-token` and abort with exit 3 if the
+  lease was reclaimed and re-minted. `lockpick commit` runs a foreground keep-alive that re-verifies and
+  re-extends the lease across both `git add` and `git commit`, killing the child and aborting on loss.
+
+### Changed
+
+- **Idempotent acquire** — re-acquiring a path (or sub-path) you already hold now refreshes and returns
+  your existing lock (exit 0) instead of self-conflicting (exit 3). A request broader than your held
+  locks, or overlapping another agent's, still conflicts.
+- `git begin --json` now returns a stable `{kind:"git-begin", lock_id, git_token, refreshed_lock_ids}`
+  shape even when it refreshes sibling file locks.
+
 ## 0.3.0
 
 ### Added

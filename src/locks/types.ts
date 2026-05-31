@@ -45,7 +45,15 @@ export interface FileLockRecord {
   lastHeartbeatAt: string;
   leaseExpiresAt: string;
   ttlMs: number;
+  /**
+   * F4 fencing generation, stamped onto an `@git/index` lock from the persisted
+   * monotonic counter when the lease is minted. Absent on path/glob locks.
+   */
+  generation?: number;
 }
+
+/** Persisted, monotonic `@git/index` lease counter (survives release/reclaim). */
+export const GIT_INDEX_GENERATION_FILE = "git-index.generation";
 
 export type LockLeaseStatus =
   | "held"
@@ -76,7 +84,8 @@ export type SuggestedLockAction =
   | "refreshed"
   | "status"
   | "pruned"
-  | "identified";
+  | "identified"
+  | "verified";
 
 export interface LockConflict {
   lock: FileLockRecord;
@@ -99,6 +108,51 @@ export interface BoardAgent {
   locks: BoardLock[];
 }
 
+export type GitVerifyState = "ordinary" | "merge_or_sequencer" | "no_staged_changes";
+
+export interface GitVerifyCaller {
+  agentId: string;
+  source: string;
+  harnessScope?: LockOwnerHarnessScope;
+  reliable: boolean;
+}
+
+export interface GitVerifyCoveredBy {
+  lockId: string;
+  resource: string;
+  owner: string;
+  ownedByCaller: boolean;
+}
+
+export interface GitVerifyCovered {
+  path: string;
+  coveredBy: GitVerifyCoveredBy;
+}
+
+export interface GitVerifyUncovered {
+  path: string;
+  testedAgainst: string[];
+  hint?: string;
+}
+
+export interface GitVerifyRename {
+  from: string;
+  to: string;
+  covered: boolean;
+}
+
+/** The `lockpick git verify` advisory report (GIT_HOOK_SPEC §3.8). */
+export interface GitVerifyReport {
+  ok: boolean;
+  state: GitVerifyState;
+  caller: GitVerifyCaller;
+  stagedTotal: number;
+  covered: GitVerifyCovered[];
+  foreignCovered: GitVerifyCovered[];
+  uncovered: GitVerifyUncovered[];
+  renames: GitVerifyRename[];
+}
+
 export interface LockOperationResult {
   kind:
     | "acquired"
@@ -108,7 +162,8 @@ export interface LockOperationResult {
     | "status"
     | "board"
     | "pruned"
-    | "identified";
+    | "identified"
+    | "verified";
   exitCode: number;
   suggestedAction: SuggestedLockAction;
   lock?: FileLockRecord;
@@ -122,6 +177,14 @@ export interface LockOperationResult {
   aheadOf?: number;
   dryRun?: boolean;
   owner?: LockOwner;
+  /** F4: shell-safe `@git/index` fence token returned by `git begin`. */
+  gitToken?: string;
+  /** F4: ids refreshed by `git begin` before acquiring `@git/index`. */
+  refreshedLockIds?: string[];
+  /** F3: the `git verify` advisory report. */
+  verify?: GitVerifyReport;
+  /** F2: the caller's own locks affected by an id-less `release --mine` / `refresh --mine`. */
+  affectedLocks?: FileLockRecord[];
 }
 
 interface LockCommandOutputOptions {
@@ -153,21 +216,25 @@ export type LockCommand =
       lockIds: string[];
       ttlMs: number | null;
       agentId: string | null;
+      mine?: boolean;
     } & LockCommandOutputOptions)
   | ({
       name: "release";
       lockIds: string[];
       agentId: string | null;
+      mine?: boolean;
     } & LockCommandOutputOptions)
   | ({
       name: "status";
       paths: string[];
       globs: string[];
+      mine?: boolean;
     } & LockCommandOutputOptions)
   | ({
       name: "board";
       paths: string[];
       globs: string[];
+      mine?: boolean;
     } & LockCommandOutputOptions)
   | ({ name: "prune"; dryRun: boolean } & LockCommandOutputOptions)
   | ({ name: "identify"; agentId: string | null } & LockCommandOutputOptions)
@@ -183,6 +250,13 @@ export type LockCommand =
       lockIds: string[];
       releaseLockIds: string[];
       agentId: string | null;
+      gitToken?: string | null;
+    } & LockCommandOutputOptions)
+  | ({
+      name: "git-verify";
+      includeUnstaged: boolean;
+      pathspec: string[];
+      pathspecMode: "only" | "include" | null;
     } & LockCommandOutputOptions);
 
 export class LockCommandError extends Error {

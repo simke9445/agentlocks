@@ -300,6 +300,25 @@ export function lockOwnerSource(owner: LockOwner): string | null {
   return owner.source;
 }
 
+/**
+ * Is this resolved owner a reliable identity for owner-keyed decisions
+ * (F2 `--mine` mutates, F3 `git verify` `owned_by_caller`)?
+ *
+ * Defined as an EXCLUSION so stable explicit/env ids stay reliable (plain `--agent-id`
+ * and `LOCKPICK_AGENT_ID` are kept for unsupported-harness recovery and must NOT be
+ * rejected). Unreliable iff:
+ *  - `source === "fallback"` (a fresh per-process id — matches nothing held under a real id), or
+ *  - the resolved owner is a bare Claude `harnessScope === "session"` id (the unscoped
+ *    `claude-code:<session>`, which never `===` the scoped `:main`/`:agent` id a held lock
+ *    carries, so it would mis-attribute the caller's own locks).
+ * Everything else (scoped `main`/`agent`, a Codex thread, a stable explicit/env id) is reliable.
+ */
+export function isReliableOwnerIdentity(owner: LockOwner): boolean {
+  if (owner.source === "fallback") return false;
+  if (owner.harnessScope === "session") return false;
+  return true;
+}
+
 function parseHarnessOwnerAgentId(agentId: string): {
   harness?: LockOwnerHarness;
   harnessScope?: LockOwnerHarnessScope;

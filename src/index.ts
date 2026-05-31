@@ -11,18 +11,22 @@ export {
 } from "./config";
 export {
   CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
+  CODEX_COMMIT_HOOK_SCRIPT_PATH,
   type InitHarness,
   type InitInstructionsTarget,
   type InitResult,
   lockpickAgentsSnippet,
+  renderClaudeCommitHookScript,
   renderClaudeLockpickAgentHookScript,
+  renderCodexCommitHookScript,
   renderInitResult,
   resolveInitHarness,
   runInit,
 } from "./init";
-export { executeLockCommand, renderLockResult } from "./locks/commands";
-export { resourcesConflict } from "./locks/matching";
-export { FileLockRegistry } from "./locks/registry";
+export { executeLockCommand, renderLockResult, verifyGitFence } from "./locks/commands";
+export { runGitVerify } from "./locks/git-verify";
+export { resourceCovers, resourcesConflict, resourcesCover } from "./locks/matching";
+export { FileLockRegistry, gitIndexToken } from "./locks/registry";
 export { normalizeLockResources } from "./locks/resources";
 export {
   CLAUDE_CODE_SESSION_ENV_KEY,
@@ -38,6 +42,7 @@ export {
   detectHarnessAgentId,
   type HarnessSessionProbeOptions,
   identifyLockOwner,
+  isReliableOwnerIdentity,
   LOCKPICK_HARNESS_AGENT_ENV_KEY,
   lockOwnerAgentId,
   lockOwnerSource,

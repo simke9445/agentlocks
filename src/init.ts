@@ -1,5 +1,16 @@
 import path from "node:path";
 import {
+  CLAUDE_AGENT_ENV_HOOK_BODY,
+  renderClaudeCommitHookScript,
+  renderCodexCommitHookScript,
+} from "./cli/commit-hook-script";
+
+export {
+  renderClaudeCommitHookScript,
+  renderCodexCommitHookScript,
+} from "./cli/commit-hook-script";
+
+import {
   DEFAULT_CONFIG_FILE,
   findHostRoot,
   loadLockpickConfig,
@@ -17,6 +28,7 @@ export interface InitOptions {
   cwd?: string;
   check?: boolean;
   harness?: InitHarness;
+  commitHook?: boolean;
 }
 
 export type InitHarness = "auto" | "codex" | "claude-code";
@@ -65,68 +77,26 @@ const CLAUDE_SETTINGS_PATH = ".claude/settings.json";
 const CLAUDE_HOOK_SCRIPT_REFERENCE =
   "$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/lockpick-agent-env.mjs";
 const CLAUDE_HOOK_COMMAND = "node";
-const CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT = `#!/usr/bin/env node
-import { readFileSync } from "node:fs";
+// The default (id-injection-only) Claude hook body lives in commit-hook-script.ts
+// as the single source of truth; the merged commit-hook body extends it there.
+const CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT = CLAUDE_AGENT_ENV_HOOK_BODY;
 
-const input = JSON.parse(readFileSync(0, "utf8") || "{}");
-
-if (input.tool_name !== "Bash") process.exit(0);
-
-const toolInput = input.tool_input && typeof input.tool_input === "object" ? input.tool_input : null;
-const command = typeof toolInput?.command === "string" ? toolInput.command : "";
-
-if (!command || !invokesLockpick(command)) process.exit(0);
-if (
-  /\\bLOCKPICK_HARNESS_AGENT_ID\\s*=/.test(command) ||
-  /\\bLOCKPICK_AGENT_ID\\s*=/.test(command) ||
-  /(^|\\s)--agent-id(\\s|=|$)/.test(command)
-) {
-  process.exit(0);
-}
-
-const sessionId =
-  typeof input.session_id === "string" && input.session_id.trim()
-    ? input.session_id.trim()
-    : typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
-      ? process.env.CLAUDE_CODE_SESSION_ID.trim()
-      : "";
-
-if (!sessionId) process.exit(0);
-
-const agentId = typeof input.agent_id === "string" ? input.agent_id.trim() : "";
-const ownerId = agentId
-  ? \`claude-code:\${sessionId}:agent:\${agentId}\`
-  : \`claude-code:\${sessionId}:main\`;
-
-process.stdout.write(
-  JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      updatedInput: {
-        ...toolInput,
-        command: \`export LOCKPICK_HARNESS_AGENT_ID=\${shellQuote(ownerId)}; \${command}\`,
-      },
-    },
-  }),
-);
-
-function invokesLockpick(command) {
-  const direct = /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*lockpick(?:\\s|$)/;
-  const packageScript =
-    /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*(?:bun|npm|pnpm)\\s+run\\s+(?:--silent\\s+)?lockpick(?::[A-Za-z0-9:_-]+)?(?:\\s|$)/;
-  return direct.test(command) || packageScript.test(command);
-}
-
-function shellQuote(value) {
-  return \`'\${value.replace(/'/g, "'\\\\''")}'\`;
-}
-`;
+export const CODEX_COMMIT_HOOK_SCRIPT_PATH = ".codex/hooks/lockpick-git-verify.mjs";
+const CODEX_HOOKS_CONFIG_PATH = ".codex/hooks.json";
+const CODEX_HOOK_MATCHER = "^Bash$";
+const CODEX_HOOK_COMMAND =
+  'node "$(git rev-parse --show-toplevel)/.codex/hooks/lockpick-git-verify.mjs"';
+const CODEX_HOOK_TIMEOUT = 30;
+const CODEX_TRUST_NOTE =
+  "Codex project-local hooks are inert until you trust this project (Codex prints a startup " +
+  "warning; confirm via /hooks). The verify backstop will not run until trusted.";
 
 export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   const root = path.resolve(options.root ?? (await findHostRoot(options.cwd ?? process.cwd())));
   const check = Boolean(options.check);
   const harness = options.harness ?? "auto";
   const resolvedHarness = resolveInitHarness(harness, process.env);
+  const commitHook = Boolean(options.commitHook);
   const instructionsTarget = instructionsTargetForHarness(resolvedHarness);
   const instructionsPath = INIT_INSTRUCTIONS_PATHS[instructionsTarget];
   const config = await loadLockpickConfig({ root });
@@ -139,8 +109,11 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
     changes.push(await ensureAgentsInstructions(config, check, instructionsPath));
   }
   if (resolvedHarness === "claude-code") {
-    changes.push(await ensureClaudeHookScript(config, check));
+    changes.push(await ensureClaudeHookScript(config, check, commitHook));
     changes.push(await ensureClaudeSettings(config, check));
+  }
+  if (commitHook && resolvedHarness === "codex") {
+    changes.push(...(await ensureCodexCommitHook(config, check)));
   }
   if (config.init.updateGitignore) {
     changes.push(await ensureGitignore(config, check));
@@ -317,21 +290,86 @@ async function ensureAgentsInstructions(
 async function ensureClaudeHookScript(
   config: ResolvedLockpickConfig,
   check: boolean,
+  commitHook: boolean,
 ): Promise<InitChange> {
   const hookPath = path.join(config.root, CLAUDE_LOCKPICK_AGENT_HOOK_PATH);
+  // With --commit-hook the merged body adds the gated git-commit verify branch;
+  // otherwise the id-injection-only body (byte-identical to 0.3.0) is written.
+  const body = commitHook ? renderClaudeCommitHookScript() : CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT;
   const exists = await pathExists(hookPath);
   const current = exists ? await readText(hookPath) : "";
-  if (exists && current === CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT) {
+  if (exists && current === body) {
     return change(CLAUDE_LOCKPICK_AGENT_HOOK_PATH, "unchanged", "Claude agent hook is current");
   }
   if (!check) {
     await ensureDir(path.dirname(hookPath));
-    await writeText(hookPath, CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT);
+    await writeText(hookPath, body);
   }
   return change(
     CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
     check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
     "Claude agent hook is required",
+  );
+}
+
+async function ensureCodexCommitHook(
+  config: ResolvedLockpickConfig,
+  check: boolean,
+): Promise<InitChange[]> {
+  const changes: InitChange[] = [];
+  changes.push(await ensureCodexHookScript(config, check));
+  changes.push(await ensureCodexHooksConfig(config, check));
+  // The trust note is advisory, not drift: only surface it on an actual install
+  // so `init --check` stays a clean no-op when the .codex files are current.
+  if (!check) {
+    changes.push(change(CODEX_HOOKS_CONFIG_PATH, "reported", CODEX_TRUST_NOTE));
+  }
+  return changes;
+}
+
+async function ensureCodexHookScript(
+  config: ResolvedLockpickConfig,
+  check: boolean,
+): Promise<InitChange> {
+  const scriptPath = path.join(config.root, CODEX_COMMIT_HOOK_SCRIPT_PATH);
+  const body = renderCodexCommitHookScript();
+  const exists = await pathExists(scriptPath);
+  const current = exists ? await readText(scriptPath) : "";
+  if (exists && current === body) {
+    return change(CODEX_COMMIT_HOOK_SCRIPT_PATH, "unchanged", "Codex git-verify hook is current");
+  }
+  if (!check) {
+    await ensureDir(path.dirname(scriptPath));
+    await writeText(scriptPath, body);
+  }
+  return change(
+    CODEX_COMMIT_HOOK_SCRIPT_PATH,
+    check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
+    "Codex git-verify hook is required",
+  );
+}
+
+async function ensureCodexHooksConfig(
+  config: ResolvedLockpickConfig,
+  check: boolean,
+): Promise<InitChange> {
+  const configPath = path.join(config.root, CODEX_HOOKS_CONFIG_PATH);
+  const exists = await pathExists(configPath);
+  const current = exists ? await readText(configPath) : "";
+  const parsed = current.trim() ? JSON.parse(current) : {};
+  if (!isRecord(parsed)) throw new Error(`${CODEX_HOOKS_CONFIG_PATH} must contain a JSON object.`);
+  const next = `${formatJsonArtifact(upsertCodexHookConfig(parsed))}\n`;
+  if (exists && current === next) {
+    return change(CODEX_HOOKS_CONFIG_PATH, "unchanged", "Codex hook config is current");
+  }
+  if (!check) {
+    await ensureDir(path.dirname(configPath));
+    await writeText(configPath, next);
+  }
+  return change(
+    CODEX_HOOKS_CONFIG_PATH,
+    check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
+    "Codex hook config is required",
   );
 }
 
@@ -476,6 +514,38 @@ function isClaudeLockpickAgentHookHandler(value: unknown): boolean {
     value.args.length === 1 &&
     value.args[0] === CLAUDE_HOOK_SCRIPT_REFERENCE
   );
+}
+
+function upsertCodexHookConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const hooks = isRecord(config.hooks) ? { ...config.hooks } : {};
+  const preToolUse = Array.isArray(hooks.PreToolUse) ? [...hooks.PreToolUse] : [];
+  const bashGroupIndex = preToolUse.findIndex(
+    (group) => isRecord(group) && group.matcher === CODEX_HOOK_MATCHER,
+  );
+  const existingGroup: Record<string, unknown> = isRecord(preToolUse[bashGroupIndex])
+    ? { ...(preToolUse[bashGroupIndex] as Record<string, unknown>) }
+    : { matcher: CODEX_HOOK_MATCHER };
+  const hookHandlers = Array.isArray(existingGroup.hooks) ? [...existingGroup.hooks] : [];
+  if (!hookHandlers.some(isCodexLockpickHookHandler)) {
+    hookHandlers.push({
+      type: "command",
+      command: CODEX_HOOK_COMMAND,
+      timeout: CODEX_HOOK_TIMEOUT,
+    });
+  }
+  existingGroup.matcher = CODEX_HOOK_MATCHER;
+  existingGroup.hooks = hookHandlers;
+  if (bashGroupIndex === -1) {
+    preToolUse.push(existingGroup);
+  } else {
+    preToolUse[bashGroupIndex] = existingGroup;
+  }
+  hooks.PreToolUse = preToolUse;
+  return { ...config, hooks };
+}
+
+function isCodexLockpickHookHandler(value: unknown): boolean {
+  return isRecord(value) && value.type === "command" && value.command === CODEX_HOOK_COMMAND;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

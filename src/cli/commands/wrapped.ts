@@ -1,5 +1,9 @@
-import { spawn } from "node:child_process";
-import { executeLockCommand, type LockCommandOutput } from "../../locks/commands";
+import { type ChildProcess, spawn } from "node:child_process";
+import { executeLockCommand, type LockCommandOutput, verifyGitFence } from "../../locks/commands";
+
+// F4: how often the foreground keep-alive re-verifies + re-extends the @git/index fence
+// while `git add`/`git commit` run. Well under the default lease; sub-interval TTLs stay advisory.
+const FENCE_KEEPALIVE_INTERVAL_MS = 5_000;
 
 interface WrappedBase {
   paths: string[];
@@ -101,29 +105,95 @@ async function runCommit(
     );
     return;
   }
-  const gitLockId = gitBegin.text.trim();
+  // `git begin --id-only` prints exactly two lines: the @git/index lock id, then the fence token.
+  const beginLines = gitBegin.text
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const gitLockId = beginLines[0] ?? "";
+  const gitToken = beginLines[1] ?? "";
+
+  // F4: foreground keep-alive — while the index-mutating children run OUTSIDE the registry
+  // mutex, periodically re-verify + re-extend the @git/index lease. On token loss (the lease
+  // was reclaimed/re-minted), kill the active child and abort exit 3.
+  let fenceLost: string | null = null;
+  let activeChild: ChildProcess | null = null;
+  let checking = false;
+  const keepAlive = async (): Promise<void> => {
+    if (checking || fenceLost || !gitToken) return;
+    checking = true;
+    try {
+      const check = await verifyGitFence(
+        gitLockId,
+        gitToken,
+        command.agentId,
+        { refresh: true },
+        cwd,
+      );
+      if (check.exitCode !== 0) {
+        fenceLost = check.stderr ?? "@git/index fence lost";
+        activeChild?.kill();
+      }
+    } finally {
+      checking = false;
+    }
+  };
+  const timer = gitToken
+    ? setInterval(() => {
+        void keepAlive();
+      }, FENCE_KEEPALIVE_INTERVAL_MS)
+    : null;
 
   let gitCode = 0;
   try {
-    gitCode = await spawnChild(["git", "add", "--", ...command.paths], cwd);
-    if (gitCode === 0) {
-      const args = ["git", "commit"];
-      if (command.message !== null) args.push("-m", command.message);
-      args.push("--", ...command.paths);
-      gitCode = await spawnChild(args, cwd);
+    if (gitToken) {
+      // Verify + refresh once before mutating the index (closes the pre-spawn window).
+      const pre = await verifyGitFence(
+        gitLockId,
+        gitToken,
+        command.agentId,
+        { refresh: true },
+        cwd,
+      );
+      if (pre.exitCode !== 0) fenceLost = pre.stderr ?? "@git/index fence lost";
+    }
+    if (!fenceLost) {
+      gitCode = await spawnChild(["git", "add", "--", ...command.paths], cwd, (child) => {
+        activeChild = child;
+      });
+      if (gitCode === 0 && !fenceLost) {
+        const args = ["git", "commit"];
+        if (command.message !== null) args.push("-m", command.message);
+        args.push("--", ...command.paths);
+        gitCode = await spawnChild(args, cwd, (child) => {
+          activeChild = child;
+        });
+      }
     }
   } finally {
-    await executeLockCommand(
-      {
-        name: "git-end",
-        lockIds: [gitLockId],
-        releaseLockIds: command.keep ? [] : [lockId],
-        agentId: command.agentId,
-        json: false,
-        idOnly: true,
-      },
-      cwd,
-    );
+    if (timer) clearInterval(timer);
+    try {
+      await executeLockCommand(
+        {
+          name: "git-end",
+          lockIds: [gitLockId],
+          releaseLockIds: command.keep ? [] : [lockId],
+          agentId: command.agentId,
+          json: false,
+          idOnly: true,
+        },
+        cwd,
+      );
+    } catch {
+      // Best-effort cleanup: a lost/reclaimed lease may already be gone.
+    }
+  }
+
+  if (fenceLost) {
+    console.error(`lockpick: ${fenceLost}`);
+    process.exitCode = 3;
+    return;
   }
   if (gitCode !== 0) process.exitCode = gitCode;
 }
@@ -150,11 +220,16 @@ function emit(output: LockCommandOutput): void {
   if (output.exitCode !== 0) process.exitCode = output.exitCode;
 }
 
-function spawnChild(argv: string[], cwd: string): Promise<number> {
+function spawnChild(
+  argv: string[],
+  cwd: string,
+  onSpawn?: (child: ChildProcess) => void,
+): Promise<number> {
   const [executable, ...args] = argv;
   if (!executable) return Promise.resolve(2);
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { stdio: "inherit", cwd });
+    onSpawn?.(child);
     child.on("error", reject);
     child.on("exit", (code, signal) => resolve(signal ? 128 : (code ?? 0)));
   });

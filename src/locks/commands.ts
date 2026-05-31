@@ -1,4 +1,5 @@
 import { loadLockpickConfig, type ResolvedLockpickConfig, renderLockpickCommand } from "../config";
+import { runGitVerify } from "./git-verify";
 import { FileLockRegistry, type FileLockRegistryOptions } from "./registry";
 import {
   createHarnessSessionProbe,
@@ -11,6 +12,7 @@ import {
 import type {
   BoardAgent,
   ClassifiedLock,
+  GitVerifyReport,
   LockCommand,
   LockConflict,
   LockOperationResult,
@@ -31,10 +33,9 @@ export interface ExecuteLockCommandOptions {
   registryOptions?: Partial<FileLockRegistryOptions>;
 }
 
-export async function executeLockCommand(
-  command: LockCommand,
-  cwdOrOptions: string | ExecuteLockCommandOptions = process.cwd(),
-): Promise<LockCommandOutput> {
+async function buildRegistry(
+  cwdOrOptions: string | ExecuteLockCommandOptions,
+): Promise<{ registry: FileLockRegistry; config: ResolvedLockpickConfig }> {
   const options = typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
   const config =
     options.config ?? (await loadLockpickConfig({ cwd: options.cwd ?? process.cwd() }));
@@ -59,6 +60,41 @@ export async function executeLockCommand(
             : createUnknownSessionProbe(),
     ...options.registryOptions,
   });
+  return { registry, config };
+}
+
+/**
+ * F4: verify (and optionally refresh) the `@git/index` fence token. Used by the
+ * `runCommit` foreground keep-alive. Returns exit 3 (LockCommandError) on a lost lease.
+ */
+export async function verifyGitFence(
+  gitLockId: string,
+  gitToken: string,
+  agentId: string | null,
+  fenceOptions: { refresh?: boolean },
+  cwdOrOptions: string | ExecuteLockCommandOptions = process.cwd(),
+): Promise<LockCommandOutput> {
+  const { registry } = await buildRegistry(cwdOrOptions);
+  try {
+    await registry.verifyGitIndexToken(gitLockId, gitToken, agentId, fenceOptions);
+    return { exitCode: 0, text: "" };
+  } catch (error) {
+    if (error instanceof LockCommandError) {
+      return { exitCode: error.exitCode, text: "", stderr: error.message };
+    }
+    throw error;
+  }
+}
+
+export async function executeLockCommand(
+  command: LockCommand,
+  cwdOrOptions: string | ExecuteLockCommandOptions = process.cwd(),
+): Promise<LockCommandOutput> {
+  // The directory the command was INVOKED from (may be a subdir) — git verify resolves
+  // pathspecs relative to this, not the repo root (the hook runs verify in its effective cwd).
+  const invocationCwd =
+    typeof cwdOrOptions === "string" ? cwdOrOptions : (cwdOrOptions.cwd ?? process.cwd());
+  const { registry, config } = await buildRegistry(cwdOrOptions);
   const results: LockOperationResult[] = [];
   switch (command.name) {
     case "acquire":
@@ -87,20 +123,38 @@ export async function executeLockCommand(
       );
       break;
     case "refresh":
+      if (command.mine) {
+        results.push(await registry.refreshMine(command.ttlMs, command.agentId));
+        break;
+      }
       for (const lockId of requireLockIds(command.lockIds, "refresh")) {
         results.push(await registry.refresh(lockId, command.ttlMs, command.agentId));
       }
       break;
     case "release":
+      if (command.mine) {
+        results.push(await registry.releaseMine(command.agentId));
+        break;
+      }
       for (const lockId of requireLockIds(command.lockIds, "release")) {
         results.push(await registry.release(lockId, command.agentId));
       }
       break;
     case "status":
-      results.push(await registry.status({ paths: command.paths, globs: command.globs }));
+      results.push(
+        await registry.status(
+          { paths: command.paths, globs: command.globs },
+          command.mine ? { mine: true } : {},
+        ),
+      );
       break;
     case "board":
-      results.push(await registry.board({ paths: command.paths, globs: command.globs }));
+      results.push(
+        await registry.board(
+          { paths: command.paths, globs: command.globs },
+          command.mine ? { mine: true } : {},
+        ),
+      );
       break;
     case "prune":
       results.push(await registry.prune(command.dryRun));
@@ -121,13 +175,29 @@ export async function executeLockCommand(
         }),
       );
       break;
-    case "git-end":
-      for (const lockId of requireLockIds(command.lockIds, "git end")) {
+    case "git-end": {
+      const endIds = requireLockIds(command.lockIds, "git end");
+      // F4 backstop: re-verify the fence token on the @git/index lease before releasing.
+      if (command.gitToken && endIds[0]) {
+        await registry.verifyGitIndexToken(endIds[0], command.gitToken, command.agentId);
+      }
+      for (const lockId of endIds) {
         results.push(await registry.release(lockId, command.agentId));
       }
       for (const lockId of command.releaseLockIds) {
         results.push(await registry.release(lockId, command.agentId));
       }
+      break;
+    }
+    case "git-verify":
+      results.push(
+        await runGitVerify(registry, {
+          cwd: invocationCwd,
+          includeUnstaged: command.includeUnstaged,
+          pathspec: command.pathspec,
+          pathspecMode: command.pathspecMode,
+        }),
+      );
       break;
   }
 
@@ -146,6 +216,12 @@ function renderCommandResults(
   config: ResolvedLockpickConfig,
 ): { exitCode: number; text: string; json: unknown; stderr?: string } {
   const exitCode = results.find((result) => result.exitCode !== 0)?.exitCode ?? 0;
+  if (command.name === "git-begin" && exitCode === 0) {
+    return renderGitBegin(command, results, config, exitCode);
+  }
+  if (command.name === "git-verify") {
+    return renderGitVerify(results);
+  }
   const isBatch = results.length !== 1;
   const firstResult = results[0];
   const emptyJson = { kind: "batch", exitCode, results: [] };
@@ -169,6 +245,111 @@ function renderCommandResults(
     json,
     ...(rendered.stderr !== undefined ? { stderr: rendered.stderr } : {}),
   };
+}
+
+function renderGitBegin(
+  command: LockCommand,
+  results: LockOperationResult[],
+  config: ResolvedLockpickConfig,
+  exitCode: number,
+): { exitCode: number; text: string; json: unknown; stderr?: string } {
+  const acquired = results.find((result) => result.kind === "acquired");
+  const refreshed = results.filter((result) => result.kind === "refreshed");
+  const lockId = acquired?.lock?.lockId ?? null;
+  const gitToken = acquired?.gitToken ?? null;
+  const refreshedLockIds = refreshed
+    .map((result) => result.lock?.lockId)
+    .filter((id): id is string => Boolean(id));
+  const json = {
+    kind: "git-begin",
+    exitCode,
+    lock_id: lockId,
+    git_token: gitToken,
+    refreshed_lock_ids: refreshedLockIds,
+  };
+  // --id-only: exactly two shell-safe lines (lock id, then fence token).
+  const text =
+    command.idOnly === true
+      ? [lockId, gitToken].filter((value): value is string => Boolean(value)).join("\n")
+      : renderResults(results, command.verbose === true, config);
+  return { exitCode, text, json };
+}
+
+function renderGitVerify(results: LockOperationResult[]): {
+  exitCode: number;
+  text: string;
+  json: unknown;
+  stderr?: string;
+} {
+  const report = results[0]?.verify;
+  const json = report
+    ? gitVerifyJson(report)
+    : { ok: true, command: "git verify", state: "no_staged_changes" };
+  const stderr = report ? gitVerifyFindings(report) : undefined;
+  const text = report ? gitVerifySummary(report) : "git verify: no staged changes";
+  // Advisory: always exit 0.
+  return { exitCode: 0, text, json, ...(stderr !== undefined ? { stderr } : {}) };
+}
+
+function gitVerifyCoveredJson(entry: GitVerifyReport["covered"][number]): Record<string, unknown> {
+  return {
+    path: entry.path,
+    covered_by: {
+      lock_id: entry.coveredBy.lockId,
+      resource: entry.coveredBy.resource,
+      owner: entry.coveredBy.owner,
+      owned_by_caller: entry.coveredBy.ownedByCaller,
+    },
+  };
+}
+
+function gitVerifyJson(report: GitVerifyReport): Record<string, unknown> {
+  return {
+    ok: report.ok,
+    command: "git verify",
+    caller: {
+      agent_id: report.caller.agentId,
+      source: report.caller.source,
+      harness_scope: report.caller.harnessScope ?? null,
+      reliable: report.caller.reliable,
+    },
+    state: report.state,
+    staged_total: report.stagedTotal,
+    covered: report.covered.map(gitVerifyCoveredJson),
+    foreign_covered: report.foreignCovered.map(gitVerifyCoveredJson),
+    uncovered: report.uncovered.map((entry) => ({
+      path: entry.path,
+      tested_against: entry.testedAgainst,
+      ...(entry.hint !== undefined ? { hint: entry.hint } : {}),
+    })),
+    renames: report.renames.map((entry) => ({
+      from: entry.from,
+      to: entry.to,
+      covered: entry.covered,
+    })),
+  };
+}
+
+function gitVerifyFindings(report: GitVerifyReport): string | undefined {
+  if (report.state === "merge_or_sequencer") {
+    return "merge/sequencer commit in progress — lock check skipped";
+  }
+  if (report.state === "no_staged_changes") return undefined;
+  const lines: string[] = [];
+  for (const entry of report.uncovered) {
+    lines.push(`unlocked: ${entry.path}${entry.hint !== undefined ? ` (${entry.hint})` : ""}`);
+  }
+  for (const entry of report.foreignCovered) {
+    lines.push(`locked by another agent: ${entry.path} (held by ${entry.coveredBy.owner})`);
+  }
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function gitVerifySummary(report: GitVerifyReport): string {
+  if (report.state === "merge_or_sequencer")
+    return "git verify: merge/sequencer in progress — skipped";
+  if (report.state === "no_staged_changes") return "git verify: no staged changes";
+  return `git verify: ${report.covered.length} covered, ${report.uncovered.length} unlocked, ${report.foreignCovered.length} foreign-covered`;
 }
 
 function renderCommandText(
@@ -203,11 +384,23 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
     }
     case "refreshed":
     case "released":
+      if (result.affectedLocks) {
+        return {
+          kind: result.kind,
+          exitCode: result.exitCode,
+          lock_count: result.affectedLocks.length,
+          lock_ids: result.affectedLocks.map((lock) => lock.lockId),
+        };
+      }
       return {
         kind: result.kind,
         exitCode: result.exitCode,
         lock_id: result.lock?.lockId ?? null,
       };
+    case "verified":
+      return result.verify
+        ? gitVerifyJson(result.verify)
+        : { kind: "verified", exitCode: result.exitCode };
     case "conflict":
       return {
         kind: "conflict",
@@ -296,8 +489,11 @@ function renderLockIds(command: LockCommand, results: LockOperationResult[]): st
   const prunedIds = results.flatMap((result) =>
     result.kind === "pruned" ? (result.pruned ?? []).map((lock) => lock.lockId) : [],
   );
+  const mineIds = results.flatMap((result) =>
+    result.affectedLocks ? result.affectedLocks.map((lock) => lock.lockId) : [],
+  );
   const lockIds = idResults.map((result) => result.lock?.lockId).filter((id): id is string => !!id);
-  const ids = [...statusIds, ...boardIds, ...prunedIds, ...lockIds];
+  const ids = [...statusIds, ...boardIds, ...prunedIds, ...mineIds, ...lockIds];
   return ids.join("\n");
 }
 
@@ -328,9 +524,13 @@ export function renderLockResult(
       return [...data, next].join("\n");
     }
     case "refreshed":
+      if (result.affectedLocks) return renderMineSummary("refreshed", result.affectedLocks);
       return `lock refreshed: ${result.lock?.lockId ?? "<unknown>"}`;
     case "released":
+      if (result.affectedLocks) return renderMineSummary("released", result.affectedLocks);
       return `lock released: ${result.lock?.lockId ?? "<unknown>"}`;
+    case "verified":
+      return result.verify ? gitVerifySummary(result.verify) : "git verify: no report";
     case "status":
       return verbose ? renderStatus(result.locks ?? []) : renderStatusSummary(result.locks ?? []);
     case "board":
@@ -355,6 +555,12 @@ export function renderLockResult(
 function renderResources(resources: LockResource[]): string[] {
   if (resources.length === 0) return ["resources: none"];
   return ["resources:", ...resources.map((resource) => `- ${resource.kind} ${resource.value}`)];
+}
+
+function renderMineSummary(verb: string, locks: { lockId: string }[]): string {
+  if (locks.length === 0)
+    return `no locks to ${verb === "released" ? "release" : "refresh"} (none held)`;
+  return `${verb} ${locks.length} lock(s): ${locks.map((lock) => lock.lockId).join(", ")}`;
 }
 
 function conflictRender(

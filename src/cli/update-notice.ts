@@ -88,11 +88,18 @@ export function isNewerVersion(latestVersion: string, currentVersion: string): b
   );
 }
 
+function isGitVerify(argv: readonly string[]): boolean {
+  return argv[0] === "git" && argv[1] === "verify";
+}
+
 function shouldCheckForUpdates(options: {
   argv: readonly string[];
   env: NodeJS.ProcessEnv;
   stderr: Pick<NodeJS.WriteStream, "isTTY" | "write">;
 }): boolean {
+  // F3: `git verify` runs inside commit hooks — never touch the network, in ANY mode
+  // (this must precede the forcing LOCKPICK_UPDATE_CHECK below).
+  if (isGitVerify(options.argv)) return false;
   if (truthyEnv(options.env.LOCKPICK_DISABLE_UPDATE_CHECK)) return false;
   if (truthyEnv(options.env.NO_UPDATE_NOTIFIER)) return false;
   if (truthyEnv(options.env.LOCKPICK_UPDATE_CHECK)) return true;

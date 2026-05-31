@@ -4,12 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { ensureDir, pathExists, readText } from "../io";
 import { formatJsonArtifact } from "../json";
-import { conflictingResources, resourceSetsConflict } from "./matching";
+import { conflictingResources, resourceSetsConflict, resourcesCover } from "./matching";
 import { normalizeLockResources, unionResources } from "./resources";
 import {
   createUnknownSessionProbe,
   type IdentifyOwnerOptions,
   identifyLockOwner,
+  isReliableOwnerIdentity,
   lockOwnerAgentId,
   type OwnerHarness,
   type SessionLivenessProbe,
@@ -21,11 +22,13 @@ import type {
   FileLockRecord,
   LockConflict,
   LockOperationResult,
+  LockOwner,
   LockResource,
 } from "./types";
 import {
   DEFAULT_LOCK_TTL_MS,
   DEFAULT_UNKNOWN_LIVENESS_GRACE_MS,
+  GIT_INDEX_GENERATION_FILE,
   LOCK_SCHEMA_VERSION,
   LockCommandError,
   MAX_LOCK_TTL_MS,
@@ -64,6 +67,11 @@ export interface AcquireLockParams extends LockResourceRequest {
 export interface ExpandLockParams extends LockResourceRequest {
   lockId: string;
   ttlMs?: number | null;
+  agentId?: string | null;
+}
+
+export interface MineFilterOptions {
+  mine?: boolean;
   agentId?: string | null;
 }
 
@@ -131,6 +139,12 @@ export class FileLockRegistry {
       const conflicts = await this.findConflicts(resources, locks, now);
       let reclaimed: FileLockRecord[] = [];
       if (conflicts.length > 0) {
+        // F1: idempotent / owner-aware acquire. If every conflict is the caller's own
+        // lock and one of them already covers the full request, refresh + return it
+        // (exit 0) instead of self-conflicting (exit 3).
+        const idempotent = await this.tryIdempotentAcquire(conflicts, resources, owner, ttlMs, now);
+        if (idempotent) return idempotent;
+
         const allReclaimable = conflicts.every((conflict) => conflict.status === "reclaimable");
         const reclaimRequested = params.reclaimConflicts ?? this.autoReclaimOnConflict;
         if (!(reclaimRequested && allReclaimable)) {
@@ -147,6 +161,9 @@ export class FileLockRegistry {
         }
       }
 
+      // F4: stamp the monotonic generation onto an @git/index lease from the persisted counter.
+      const isGitIndex = resources.some((resource) => resource.kind === "git");
+      const generation = isGitIndex ? await this.bumpGitIndexGeneration() : undefined;
       const lock: FileLockRecord = {
         schemaVersion: LOCK_SCHEMA_VERSION,
         lockId: newLockId(now),
@@ -158,6 +175,7 @@ export class FileLockRegistry {
         lastHeartbeatAt: iso(now),
         leaseExpiresAt: iso(new Date(now.getTime() + ttlMs)),
         ttlMs,
+        ...(generation !== undefined ? { generation } : {}),
       };
       await this.writeLock(lock);
       await this.appendEvent("acquired", lock, { resources });
@@ -169,6 +187,7 @@ export class FileLockRegistry {
         lock,
         resources,
         ...(reclaimed.length > 0 ? { reclaimed } : {}),
+        ...(generation !== undefined ? { gitToken: gitIndexToken(generation) } : {}),
       };
     });
   }
@@ -254,7 +273,7 @@ export class FileLockRegistry {
     return this.withMutex(async () => {
       const lock = await this.requireLock(lockId);
       this.assertLockOwner(lock, agentId ?? null);
-      await fs.rm(this.lockPath(lockId), { force: true });
+      await this.removeLock(lock);
       await this.appendEvent("released", lock, {});
       return {
         kind: "released",
@@ -265,15 +284,163 @@ export class FileLockRegistry {
     });
   }
 
-  async status(request: LockResourceRequest = {}): Promise<LockOperationResult> {
+  /** F2: id-less `release --mine` — drop every lock owned by the (reliably-identified) caller. */
+  async releaseMine(agentId?: string | null): Promise<LockOperationResult> {
+    const caller = this.requireReliableOwner(agentId);
+    const callerId = lockOwnerAgentId(caller);
+    return this.withMutex(async () => {
+      const mine = (await this.readActiveLocks()).filter(
+        (lock) => lockOwnerAgentId(lock.owner) === callerId,
+      );
+      for (const lock of mine) {
+        await this.removeLock(lock);
+        await this.appendEvent("released", lock, { cause: "release-mine" });
+      }
+      return {
+        kind: "released",
+        exitCode: 0,
+        suggestedAction: "released",
+        affectedLocks: mine,
+        owner: caller,
+      };
+    });
+  }
+
+  /** F2: id-less `refresh --mine` — renew every lock owned by the (reliably-identified) caller. */
+  async refreshMine(
+    ttlMsInput?: number | null,
+    agentId?: string | null,
+  ): Promise<LockOperationResult> {
+    const caller = this.requireReliableOwner(agentId);
+    const callerId = lockOwnerAgentId(caller);
+    const now = this.now();
+    return this.withMutex(async () => {
+      const mine = (await this.readActiveLocks()).filter(
+        (lock) => lockOwnerAgentId(lock.owner) === callerId,
+      );
+      const refreshed: FileLockRecord[] = [];
+      for (const lock of mine) {
+        const ttlMs =
+          ttlMsInput === null || ttlMsInput === undefined
+            ? lock.ttlMs
+            : this.normalizeTtl(ttlMsInput);
+        const next: FileLockRecord = {
+          ...lock,
+          ttlMs,
+          lastHeartbeatAt: iso(now),
+          leaseExpiresAt: iso(new Date(now.getTime() + ttlMs)),
+        };
+        await this.writeLock(next);
+        await this.appendEvent("refreshed", next, { cause: "refresh-mine" });
+        refreshed.push(next);
+      }
+      return {
+        kind: "refreshed",
+        exitCode: 0,
+        suggestedAction: "refreshed",
+        affectedLocks: refreshed,
+        owner: caller,
+      };
+    });
+  }
+
+  /**
+   * F4: verify the caller still holds the `@git/index` lease named by `lockId` at fence
+   * generation `token` (and re-extend it when `refresh`), under the mutex. Throws exit 3 if
+   * the lease was reclaimed/re-minted or is no longer the caller's. The foreground keep-alive
+   * in `runCommit` calls this repeatedly while it awaits `git add`/`git commit`.
+   */
+  async verifyGitIndexToken(
+    lockId: string,
+    token: string,
+    agentId: string | null | undefined,
+    options: { refresh?: boolean } = {},
+  ): Promise<LockOperationResult> {
+    const now = this.now();
+    return this.withMutex(async () => {
+      const lock = await this.findLock(lockId);
+      if (!lock) {
+        throw new LockCommandError(
+          `@git/index lease ${lockId} is no longer held (reclaimed or released); aborting commit.`,
+          3,
+        );
+      }
+      this.assertLockOwner(lock, agentId ?? null);
+      if (!lock.resources.some((resource) => resource.kind === "git")) {
+        throw new LockCommandError(`Lock ${lockId} is not an @git/index lease.`, 2);
+      }
+      if (gitIndexToken(lock.generation) !== token) {
+        throw new LockCommandError(
+          `@git/index fence mismatch (lease re-minted under a newer generation); aborting commit.`,
+          3,
+        );
+      }
+      const classified = await this.classifyLock(lock, now);
+      if (classified.status === "reclaimable") {
+        throw new LockCommandError(`@git/index lease is reclaimable (lost); aborting commit.`, 3);
+      }
+      if (options.refresh) {
+        const next: FileLockRecord = {
+          ...lock,
+          lastHeartbeatAt: iso(now),
+          leaseExpiresAt: iso(new Date(now.getTime() + lock.ttlMs)),
+        };
+        await this.writeLock(next);
+        await this.appendEvent("refreshed", next, { cause: "git-fence-keepalive" });
+      }
+      return { kind: "refreshed", exitCode: 0, suggestedAction: "refreshed", lock };
+    });
+  }
+
+  /**
+   * F3: non-mutating active-lock read for `git verify` — returns [] on a missing dir
+   * (NEVER `ensureDir`s, so verify can run on every commit / a read-only FS).
+   */
+  async readActiveLocksReadOnly(): Promise<FileLockRecord[]> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.activeDir);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+    const locks: FileLockRecord[] = [];
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        locks.push(JSON.parse(await readText(path.join(this.activeDir, name))) as FileLockRecord);
+      } catch {
+        // Skip-and-tolerate one corrupt lock file so verify never aborts a commit.
+      }
+    }
+    return locks.sort((left, right) => left.lockId.localeCompare(right.lockId));
+  }
+
+  /** F3: classify the read-only active set (no writes) for the verify engine. */
+  async classifyActiveReadOnly(now: Date = this.now()): Promise<ClassifiedLock[]> {
+    const locks = await this.readActiveLocksReadOnly();
+    return Promise.all(locks.map(async (lock) => this.classifyLock(lock, now)));
+  }
+
+  /** Resolve the caller's owner (for `git verify` ownership annotation). */
+  resolveOwner(agentId?: string | null): LockOwner {
+    return this.identifyOwner(agentId ?? null);
+  }
+
+  async status(
+    request: LockResourceRequest = {},
+    options: MineFilterOptions = {},
+  ): Promise<LockOperationResult> {
     const resources = await this.normalizeRequestedResources(request, false);
     const now = this.now();
     const locks = await this.readActiveLocks();
     const classified = await Promise.all(locks.map(async (lock) => this.classifyLock(lock, now)));
-    const matching =
+    const matching = this.applyMineFilter(
       resources.length === 0
         ? classified
-        : classified.filter((item) => resourceSetsConflict(resources, item.lock.resources));
+        : classified.filter((item) => resourceSetsConflict(resources, item.lock.resources)),
+      options,
+    );
     return {
       kind: "status",
       exitCode: 0,
@@ -283,15 +450,20 @@ export class FileLockRegistry {
     };
   }
 
-  async board(request: LockResourceRequest = {}): Promise<LockOperationResult> {
+  async board(
+    request: LockResourceRequest = {},
+    options: MineFilterOptions = {},
+  ): Promise<LockOperationResult> {
     const resources = await this.normalizeRequestedResources(request, false);
     const now = this.now();
     const locks = await this.readActiveLocks();
     const classified = await Promise.all(locks.map(async (lock) => this.classifyLock(lock, now)));
-    const matching =
+    const matching = this.applyMineFilter(
       resources.length === 0
         ? classified
-        : classified.filter((item) => resourceSetsConflict(resources, item.lock.resources));
+        : classified.filter((item) => resourceSetsConflict(resources, item.lock.resources)),
+      options,
+    );
     const byAgent = new Map<string, BoardLock[]>();
     for (const item of matching) {
       const agentId = lockOwnerAgentId(item.lock.owner);
@@ -353,8 +525,101 @@ export class FileLockRegistry {
   ): Promise<void> {
     for (const lock of locks) {
       await fs.rm(this.lockPath(lock.lockId), { force: true });
+      // F4: advance the persisted @git/index generation when an index lease is reclaimed,
+      // so a re-mint cannot reuse a prior fence token even if it happened in the same tick.
+      if (lock.resources.some((resource) => resource.kind === "git")) {
+        await this.bumpGitIndexGeneration();
+      }
       await this.appendEvent("pruned", lock, details);
     }
+  }
+
+  /** Remove a lock file (release path — no generation bump; a re-acquire bumps it). */
+  private async removeLock(lock: FileLockRecord): Promise<void> {
+    await fs.rm(this.lockPath(lock.lockId), { force: true });
+  }
+
+  /** F1: refresh + return the caller's own covering lock instead of self-conflicting. */
+  private async tryIdempotentAcquire(
+    conflicts: LockConflict[],
+    resources: LockResource[],
+    owner: LockOwner,
+    ttlMs: number,
+    now: Date,
+  ): Promise<LockOperationResult | null> {
+    const callerId = lockOwnerAgentId(owner);
+    if (!conflicts.every((conflict) => lockOwnerAgentId(conflict.lock.owner) === callerId)) {
+      return null;
+    }
+    const covering = conflicts.find((conflict) =>
+      resourcesCover(conflict.lock.resources, resources),
+    );
+    if (!covering) return null;
+    const refreshed: FileLockRecord = {
+      ...covering.lock,
+      ttlMs,
+      lastHeartbeatAt: iso(now),
+      leaseExpiresAt: iso(new Date(now.getTime() + ttlMs)),
+    };
+    await this.writeLock(refreshed);
+    await this.appendEvent("refreshed", refreshed, { cause: "idempotent-acquire" });
+    await this.extendOwnSiblingLeases(callerId, refreshed.lockId, now);
+    // F4: a re-acquired @git/index lease must still return its fence token (same generation).
+    const isGitIndex = refreshed.resources.some((resource) => resource.kind === "git");
+    return {
+      kind: "acquired",
+      exitCode: 0,
+      suggestedAction: "acquired",
+      lock: refreshed,
+      resources: refreshed.resources,
+      ...(isGitIndex ? { gitToken: gitIndexToken(refreshed.generation) } : {}),
+    };
+  }
+
+  private applyMineFilter(items: ClassifiedLock[], options: MineFilterOptions): ClassifiedLock[] {
+    if (!options.mine) return items;
+    const callerId = lockOwnerAgentId(this.identifyOwner(options.agentId ?? null));
+    return items.filter((item) => lockOwnerAgentId(item.lock.owner) === callerId);
+  }
+
+  private requireReliableOwner(agentId: string | null | undefined): LockOwner {
+    const caller = this.identifyOwner(agentId ?? null);
+    if (!isReliableOwnerIdentity(caller)) {
+      throw new LockCommandError(
+        `--mine needs a stable identity but resolved '${lockOwnerAgentId(caller)}' (${caller.source}). ` +
+          `Set LOCKPICK_HARNESS_AGENT_ID, pass --agent-id, or set LOCKPICK_AGENT_ID.`,
+        2,
+      );
+    }
+    return caller;
+  }
+
+  private async findLock(lockId: string): Promise<FileLockRecord | null> {
+    const lockPath = this.lockPath(lockId);
+    if (!(await pathExists(lockPath))) return null;
+    return JSON.parse(await readText(lockPath)) as FileLockRecord;
+  }
+
+  private async readGitIndexGeneration(): Promise<number> {
+    try {
+      const raw = await readText(path.join(this.lockRoot, GIT_INDEX_GENERATION_FILE));
+      const value = Number.parseInt(raw.trim(), 10);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    } catch (error) {
+      if (isNotFoundError(error)) return 0;
+      throw error;
+    }
+  }
+
+  /** Read + increment the persisted @git/index generation counter. MUST be called under the mutex. */
+  private async bumpGitIndexGeneration(): Promise<number> {
+    await ensureDir(this.lockRoot);
+    const next = (await this.readGitIndexGeneration()) + 1;
+    const target = path.join(this.lockRoot, GIT_INDEX_GENERATION_FILE);
+    const temp = `${target}.${process.pid}.${this.now().getTime()}.tmp`;
+    await fs.writeFile(temp, `${next}\n`, "utf8");
+    await fs.rename(temp, target);
+    return next;
   }
 
   private async extendOwnSiblingLeases(
@@ -644,6 +909,20 @@ function isAlreadyExistsError(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "EEXIST"
   );
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+/** F4: render the shell-safe `@git/index` fence token for a generation (`g<n>`). */
+export function gitIndexToken(generation: number | undefined): string {
+  return `g${generation ?? 0}`;
 }
 
 async function sleep(ms: number): Promise<void> {

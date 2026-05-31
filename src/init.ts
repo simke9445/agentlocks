@@ -250,7 +250,9 @@ export default {
   defaults: {
     ttlMs: 600_000,
     maxTtlMs: 1_800_000,
-    unknownLivenessGraceMs: 600_000,
+    unknownLivenessGraceMs: 90_000,
+    autoReclaimOnConflict: false,
+    keepAliveOnMutation: true,
   },
   owner: {
     envKeys: ["LOCKPICK_AGENT_ID"],
@@ -258,7 +260,7 @@ export default {
     fallbackPrefix: "lockpick",
   },
   liveness: {
-    adapter: "unknown",
+    adapter: "auto",
   },
 } satisfies LockpickConfig;
 `;

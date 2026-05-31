@@ -6,7 +6,7 @@ Local advisory locks for multi-agent coding in one Git worktree.
   <img src="./assets/lockpick-heading.png" alt="Lockpick" width="960">
 </p>
 
-![Version 0.2.0](https://img.shields.io/badge/version-0.2.0-blue)
+![Version 0.3.0](https://img.shields.io/badge/version-0.3.0-blue)
 ![Runtime Bun >= 1.2](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black)
 ![Language TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
@@ -232,15 +232,19 @@ default TTLs, agent identity detection, and next commands.
 
 | Command | Purpose | Key flags | Output notes |
 | --- | --- | --- | --- |
-| `acquire [paths...]` | Acquire locks for exact repo-relative paths or globs | `--glob`, `--reason`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--reason` and at least one path or glob are required |
+| `acquire [paths...]` | Acquire locks for exact repo-relative paths or globs | `--glob`, `--reason`, `--ttl-ms`, `--reclaim`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--reason` and at least one path or glob are required; `--reclaim` takes over conflicts that are all reclaimable |
 | `expand --lock <id> [paths...]` | Add paths or globs to an existing lock atomically | `--lock`, `--glob`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
 | `refresh [locks...]` | Extend held lock leases | `--lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Positional ids and repeatable `--lock` are merged |
 | `release [locks...]` | Release held locks | `--lock`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
-| `status [paths...]` | List active locks, optionally filtered by resources | `--glob`, `--json`, `--id-only`, `--verbose` | `--id-only` prints active matching lock ids |
+| `status [paths...]` | List active locks, optionally filtered by resources | `--glob`, `--json`, `--id-only`, `--verbose` | `--id-only` prints active matching lock ids; compact JSON includes each lock's status |
+| `board [paths...]` | Who/What/Where overview grouped by agent, with each lease's state | `--glob`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
 | `prune` | Remove reclaimable expired locks | `--dry-run`, `--json`, `--id-only`, `--verbose` | Use `--dry-run` before deleting |
 | `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; use `identify --json` |
 | `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first |
 | `git end [locks...]` | Release the synthetic Git-index lock | `--lock`, `--release-lock`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can release file locks after the Git lock |
+| `run [paths...] -- <cmd>` | Acquire locks, run the command after `--`, then release | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | The wrapped command runs outside the registry mutex; exit code is the command's |
+| `edit [paths...] -- <cmd>` | Acquire locks, run the command after `--`, and keep the lock | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | Prints the lock id so you can refresh or release it across turns |
+| `commit [paths...]` | Lock the paths and the Git index, stage and commit only those paths, then release | `--glob`, `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | Pathspec-scoped `git add`/`git commit`; `--keep` retains the file lock |
 | `init` | Initialize or check host support files | `--check`, `--harness auto\|codex\|claude-code`, `--json`, `--verbose` | `--check` exits 1 when changes are needed and writes nothing |
 | `capabilities` | Print the CLI contract | `--json` | Compact single-line JSON |
 | `robot-docs guide` | Print an in-tool agent workflow guide | none | Human text, deterministic golden-tested output |
@@ -298,8 +302,17 @@ export default {
     // Upper bound accepted by --ttl-ms.
     maxTtlMs: 1_800_000,
 
-    // Extra grace after expiry when liveness cannot be proven.
-    unknownLivenessGraceMs: 600_000,
+    // Grace after expiry when liveness cannot be proven. Short by default so a
+    // dead, un-probeable lock reclaims soon after its lease lapses. May be 0.
+    unknownLivenessGraceMs: 90_000,
+
+    // When true, acquire takes over a conflict whose locks are all reclaimable
+    // in one command. The `acquire --reclaim` flag always does this regardless.
+    autoReclaimOnConflict: false,
+
+    // When true, an agent's own acquire/expand/refresh extends its other held
+    // leases, so a busy agent rarely needs a dedicated refresh.
+    keepAliveOnMutation: true,
   },
 
   owner: {
@@ -315,8 +328,11 @@ export default {
   },
 
   liveness: {
-    // "unknown" is generic and local. "codex" checks Codex session metadata when configured.
-    adapter: "unknown",
+    // "auto" (default) probes by the owner's detected harness: the Codex
+    // session index or the Claude Code session transcript, falling back to the
+    // grace window for un-probeable owners. "unknown" disables probing;
+    // "codex" or "claude-code" force a single adapter.
+    adapter: "auto",
   },
 
   agents: {
@@ -441,7 +457,9 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
 - Lockpick coordinates one local worktree through files under `.lockpick/locks`; it is not a
   networked lock server.
 - Advisory locks work only when participants use Lockpick before editing and staging.
-- Liveness defaults to `unknown`; the Codex adapter is opt-in config, not a generic default.
+- Liveness defaults to the `auto` adapter, which probes the owner's harness (the Codex session
+  index or the Claude Code session transcript) and falls back to a short grace window when the
+  owner cannot be probed.
 - `init` writes a generic instruction block. It does not add prompt-optimization behavior,
   repository-specific defaults, or command aliases.
 - There are no compatibility layers, deprecated command names, or migration tools for previous

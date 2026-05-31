@@ -1,6 +1,7 @@
 import { lockpickCapabilities, renderCapabilitiesText } from "./capabilities";
 import { runInitCommand } from "./commands/init";
 import { lockExitCode, runLockCommand } from "./commands/lock";
+import { runWrappedCommand } from "./commands/wrapped";
 import { renderDoctorText, runDoctor } from "./doctor";
 import { helpText, parseCliArgs } from "./program";
 import { renderRobotDocsGuide } from "./robot-docs";
@@ -17,6 +18,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     switch (parsed.command.kind) {
       case "lock":
         await runLockCommand(parsed.command.command);
+        return;
+      case "wrapped":
+        await runWrappedCommand(parsed.command.command);
         return;
       case "init":
         await runInitCommand(parsed.command.options);

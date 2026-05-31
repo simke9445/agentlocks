@@ -1,6 +1,7 @@
 Lockpick agent guide
 
 Inspect:
+- lockpick board
 - lockpick capabilities --json
 - lockpick doctor --json
 - lockpick status --json
@@ -10,6 +11,11 @@ Lock before edits:
 - lockpick acquire <paths...> --reason "<intent>" --id-only
 - lockpick expand --lock <lock_id> <paths...>
 - lockpick refresh <lock_id>
+
+Or bundle lock, act, and release in one command:
+- lockpick run <paths...> --reason "<intent>" -- <command>
+- lockpick edit <paths...> --reason "<intent>" -- <command>
+- lockpick commit <paths...> --reason "<commit intent>" -m "<message>"
 
 Commit with the shared Git index:
 - lockpick git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only

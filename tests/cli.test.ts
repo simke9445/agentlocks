@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -322,7 +322,7 @@ test("capabilities json is compact and machine-readable", async () => {
   expect(result.code).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
-  expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThan(7000);
+  expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThan(8500);
 
   const payload = JSON.parse(result.stdout) as {
     kind?: unknown;
@@ -405,6 +405,100 @@ test("robot docs guide matches golden output", async () => {
   expect(result.stdout).toBe(
     await readFile(path.join(process.cwd(), "tests/goldens/robot-docs-guide.txt"), "utf8"),
   );
+});
+
+async function activeLockCount(workspace: string): Promise<number> {
+  const entries = await readdir(path.join(workspace, ".lockpick/locks/active")).catch(() => []);
+  return entries.filter((entry) => entry.endsWith(".json")).length;
+}
+
+test("run acquires, executes the wrapped command, and releases the lock", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-"));
+  try {
+    const result = await runCli(
+      ["run", "app.ts", "--reason", "do work", "--", "echo", "CHILD-RAN"],
+      workspace,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("CHILD-RAN");
+    expect(await activeLockCount(workspace)).toBe(0);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("edit keeps the lock and prints its id", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-edit-"));
+  try {
+    const result = await runCli(
+      ["edit", "app.ts", "--reason", "do work", "--", "echo", "EDITED"],
+      workspace,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("EDITED");
+    expect(result.stdout).toMatch(/lock_/);
+    expect(await activeLockCount(workspace)).toBe(1);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("run without a -- command exits with a usage error", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-err-"));
+  try {
+    const result = await runCli(["run", "app.ts", "--reason", "do work"], workspace);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("requires a command after --");
+    expect(await activeLockCount(workspace)).toBe(0);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("run on a conflicting path exits 3 without executing the command", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-conflict-"));
+  const env = { CLAUDE_CODE_SESSION_ID: "", CODEX_THREAD_ID: "", LOCKPICK_HARNESS_AGENT_ID: "" };
+  try {
+    await runCli(["acquire", "app.ts", "--reason", "hold", "--agent-id", "holder"], workspace, env);
+    const result = await runCli(
+      ["run", "app.ts", "--reason", "do", "--agent-id", "other", "--", "echo", "SHOULD-NOT-RUN"],
+      workspace,
+      env,
+    );
+    expect(result.code).toBe(3);
+    expect(result.stdout).toContain("lock conflict");
+    expect(result.stdout).not.toContain("SHOULD-NOT-RUN");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("commit stages and commits only the locked paths, then releases", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-commit-"));
+  try {
+    await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: workspace });
+    await execFileAsync("git", ["config", "user.name", "tester"], { cwd: workspace });
+    await writeFile(path.join(workspace, "feat.ts"), "export const x = 1;\n", "utf8");
+    await writeFile(path.join(workspace, "other.ts"), "export const y = 2;\n", "utf8");
+
+    const result = await runCli(
+      ["commit", "feat.ts", "--reason", "ship", "-m", "add feat"],
+      workspace,
+    );
+    expect(result.code).toBe(0);
+    expect(await activeLockCount(workspace)).toBe(0);
+
+    const log = await execFileAsync("git", ["log", "--oneline"], { cwd: workspace });
+    expect(log.stdout).toContain("add feat");
+    const files = await execFileAsync("git", ["show", "--name-only", "--format=", "HEAD"], {
+      cwd: workspace,
+    });
+    expect(files.stdout).toContain("feat.ts");
+    expect(files.stdout).not.toContain("other.ts");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("init check json is compact by default with verbose full output", async () => {

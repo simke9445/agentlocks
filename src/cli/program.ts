@@ -3,11 +3,13 @@ import type { InitHarness } from "../init";
 import { type LockCommand, LockCommandError } from "../locks/types";
 import type { CapabilitiesCommandOptions } from "./capabilities";
 import type { InitCommandOptions } from "./commands/init";
+import type { WrappedCommand } from "./commands/wrapped";
 import type { DoctorCommandOptions } from "./doctor";
 import type { RobotDocsCommandOptions } from "./robot-docs";
 
 export type CliCommand =
   | { kind: "lock"; command: LockCommand }
+  | { kind: "wrapped"; command: WrappedCommand }
   | { kind: "init"; options: InitCommandOptions }
   | { kind: "capabilities"; options: CapabilitiesCommandOptions }
   | { kind: "robot-docs"; options: RobotDocsCommandOptions }
@@ -84,11 +86,28 @@ interface InitCliOptions {
   harness?: InitHarness;
 }
 
+interface WrappedRunOptions {
+  glob?: string[];
+  reason: string;
+  ttlMs?: number;
+  agentId?: string;
+}
+
+interface WrappedCommitOptions {
+  glob?: string[];
+  reason: string;
+  ttlMs?: number;
+  agentId?: string;
+  message?: string;
+  keep?: boolean;
+}
+
 export function parseCliArgs(argv: string[]): ParsedCli {
   let parsedCommand: CliCommand | undefined;
   let helpBuffer = "";
+  const { effectiveArgv, childArgv } = splitWrappedChild(argv);
   const program = createProgram((command) => {
-    parsedCommand = command;
+    parsedCommand = childArgv !== undefined ? withChildArgv(command, childArgv) : command;
   });
   configureOutputTree(program, {
     writeOut: (text: string) => {
@@ -100,7 +119,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   });
 
   try {
-    program.parse(normalizeHelpAlias(argv), { from: "user" });
+    program.parse(normalizeHelpAlias(effectiveArgv), { from: "user" });
   } catch (error) {
     if (error instanceof CommanderError && error.code === "commander.helpDisplayed") {
       return { help: true, helpText: helpBuffer || program.helpInformation() };
@@ -127,6 +146,7 @@ function createProgram(onCommand?: (command: CliCommand) => void): Command {
     .enablePositionalOptions();
 
   addLockCommands(program, onCommand);
+  addWrappedCommands(program, onCommand);
   addInitCommand(program, onCommand);
   addCapabilitiesCommand(program, onCommand);
   addRobotDocsCommand(program, onCommand);
@@ -421,6 +441,81 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
   });
 }
 
+function addWrappedCommands(program: Command, onCommand?: (command: CliCommand) => void): void {
+  addWrappedRun(
+    program,
+    "run",
+    "Acquire locks for paths, run a command after --, then release.",
+    onCommand,
+  );
+  addWrappedRun(
+    program,
+    "edit",
+    "Acquire locks for paths and run a command after --, keeping the lock for later turns.",
+    onCommand,
+  );
+
+  program
+    .command("commit")
+    .description("Lock paths and the Git index, stage and commit only those paths, then release.")
+    .argument("[paths...]", "Repo-relative file paths to lock and commit.")
+    .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+    .requiredOption("--reason <text>", "Human-readable commit intent.")
+    .option("-m, --message <text>", "Commit message passed to git commit -m.")
+    .option("--keep", "Keep the file lock after committing.")
+    .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
+    .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+    .allowExcessArguments(false)
+    .action((paths: string[], _options: WrappedCommitOptions, command: Command) => {
+      const options = command.opts<WrappedCommitOptions>();
+      onCommand?.({
+        kind: "wrapped",
+        command: {
+          name: "commit",
+          paths,
+          globs: options.glob ?? [],
+          reason: options.reason,
+          ttlMs: options.ttlMs ?? null,
+          agentId: options.agentId ?? null,
+          message: options.message ?? null,
+          keep: Boolean(options.keep),
+        },
+      });
+    });
+}
+
+function addWrappedRun(
+  program: Command,
+  name: "run" | "edit",
+  description: string,
+  onCommand?: (command: CliCommand) => void,
+): void {
+  program
+    .command(name)
+    .description(description)
+    .argument("[paths...]", "Repo-relative file paths to lock.")
+    .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+    .requiredOption("--reason <text>", "Human-readable lock intent.")
+    .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
+    .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
+    .allowExcessArguments(false)
+    .action((paths: string[], _options: WrappedRunOptions, command: Command) => {
+      const options = command.opts<WrappedRunOptions>();
+      onCommand?.({
+        kind: "wrapped",
+        command: {
+          name,
+          paths,
+          globs: options.glob ?? [],
+          reason: options.reason,
+          ttlMs: options.ttlMs ?? null,
+          agentId: options.agentId ?? null,
+          argv: [],
+        },
+      });
+    });
+}
+
 function addInitCommand(program: Command, onCommand?: (command: CliCommand) => void): void {
   program
     .command("init")
@@ -538,6 +633,23 @@ function parseInitHarness(value: string): InitHarness {
 
 function mergeLockIds(optionLocks: string[] | undefined, positional: string[]): string[] {
   return [...new Set([...(positional ?? []), ...(optionLocks ?? [])])];
+}
+
+function splitWrappedChild(argv: string[]): { effectiveArgv: string[]; childArgv?: string[] } {
+  if (argv[0] !== "run" && argv[0] !== "edit") return { effectiveArgv: argv };
+  const separator = argv.indexOf("--");
+  if (separator === -1) return { effectiveArgv: argv };
+  return { effectiveArgv: argv.slice(0, separator), childArgv: argv.slice(separator + 1) };
+}
+
+function withChildArgv(command: CliCommand, childArgv: string[]): CliCommand {
+  if (
+    command.kind === "wrapped" &&
+    (command.command.name === "run" || command.command.name === "edit")
+  ) {
+    return { kind: "wrapped", command: { ...command.command, argv: childArgv } };
+  }
+  return command;
 }
 
 function normalizeHelpAlias(argv: string[]): string[] {

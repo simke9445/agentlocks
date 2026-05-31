@@ -3,6 +3,16 @@
 All notable changes to Lockpick are documented here. Lockpick is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Changed
+
+- **`lockpick init` no longer writes `CLAUDE.md`.** The Lockpick instructions block always lands in
+  `AGENTS.md`, which Claude Code reads as well as Codex, so `--harness claude-code` now writes the same
+  `AGENTS.md` block as the default harness (it still installs the `.claude/` `PreToolUse` hooks and
+  settings). The `init --json` payload drops the now-redundant `instructions_target` field;
+  `instructions_path` is always `AGENTS.md`. The exported `InitInstructionsTarget` type is removed.
+
 ## 0.4.0
 
 ### Added

@@ -70,7 +70,7 @@ worker is preparing a commit. Lockpick makes those coordination points explicit 
 | Avoid shared Git-index races | `git begin` acquires `@git/index`; `git end` releases it and can release file locks | `src/locks/types.ts`, `tests/locks.test.ts` |
 | Recover stale local locks | TTLs, liveness classification, `prune --dry-run`, then `prune` | `lockpick prune --dry-run --json` |
 | Keep automation parseable | `--json`, `--id-only`, compact error payloads, documented exit codes | `tests/cli.test.ts` |
-| Init repo guidance | Marked block in `AGENTS.md` by default, or `CLAUDE.md` with `--harness claude-code` | `lockpick init --check --json` |
+| Init repo guidance | Marked block in `AGENTS.md` (read by Codex and Claude Code) | `lockpick init --check --json` |
 | Audit health | `doctor --json` checks config, lock dirs, mutex state, and init drift | `lockpick doctor --json` |
 
 Lockpick is advisory. It coordinates agents that agree to use it; it does not stop an editor, shell
@@ -157,8 +157,7 @@ repository that should use advisory locking.
 | --- | --- |
 | `.lockpick/locks/active/` | Local active lock records |
 | `lockpick.config.ts` | Default config when missing; existing config is preserved |
-| `AGENTS.md` | Marked Lockpick instructions block by default |
-| `CLAUDE.md` | Marked instructions block when `--harness claude-code` is used |
+| `AGENTS.md` | Marked Lockpick instructions block (read by Codex and Claude Code) |
 | `.claude/settings.json` | Adds a Claude Code `PreToolUse` hook when `--harness claude-code` is used |
 | `.claude/hooks/lockpick-agent-env.mjs` | Per-Bash-call agent id hook; **by default also runs `git verify` before a `git commit` tool-call** (one script, advisory; pass `--no-commit-hook` for the id-injection-only body) |
 | `.codex/hooks.json` + `.codex/hooks/lockpick-git-verify.mjs` | Codex `PreToolUse` commit-hook backstop when `--harness codex` is used (project-local hooks need trust before they run) |
@@ -186,13 +185,13 @@ Recommended host scripts inserted when absent:
 The examples in this section assume the global install from [Setup And Usage](#setup-and-usage)
 and a supported agent harness. Codex and Claude Code identity is automatic.
 
-1. Pick the instruction target.
+1. Initialize the host repo (writes the `AGENTS.md` instructions block).
 
    ```bash
    lockpick init --check --json || true
    lockpick init
 
-   # Or target CLAUDE.md instead of AGENTS.md.
+   # Claude Code: also install the .claude PreToolUse hooks.
    lockpick init --check --harness claude-code --json || true
    lockpick init --harness claude-code
    ```
@@ -303,7 +302,7 @@ export default {
   lockRoot: ".lockpick/locks",
 
   command: {
-    // Command rendered into generated AGENTS.md or CLAUDE.md instructions.
+    // Command rendered into the generated AGENTS.md instructions.
     executable: "lockpick",
 
     // Use prefix instead when the command should render through a project script or wrapper.
@@ -429,7 +428,7 @@ bin/lockpick.ts
             -> .lockpick/locks/events.jsonl
         -> init handler
           -> lockpick.config.ts
-          -> AGENTS.md or CLAUDE.md marked block
+          -> AGENTS.md marked block
           -> .gitignore
           -> package.json scripts
         -> capabilities / robot-docs / doctor

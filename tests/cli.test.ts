@@ -518,7 +518,6 @@ test("init check json is compact by default with verbose full output", async () 
       check?: unknown;
       harness?: unknown;
       resolved_harness?: unknown;
-      instructions_target?: unknown;
       instructions_path?: unknown;
       change_count?: unknown;
       changes?: Array<Record<string, unknown>>;
@@ -530,7 +529,6 @@ test("init check json is compact by default with verbose full output", async () 
     expect(payload.check).toBe(true);
     expect(payload.harness).toBe("auto");
     expect(payload.resolved_harness).toBe("codex");
-    expect(payload.instructions_target).toBe("agents");
     expect(payload.instructions_path).toBe("AGENTS.md");
     expect(payload.change_count).toBe(payload.changes?.length);
     expect(payload.changes?.[0]).toEqual({
@@ -551,7 +549,7 @@ test("init check json is compact by default with verbose full output", async () 
   }
 });
 
-test("init claude-code harness json targets CLAUDE instructions", async () => {
+test("init claude-code harness json targets AGENTS instructions", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-init-claude-"));
   try {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
@@ -562,15 +560,13 @@ test("init claude-code harness json targets CLAUDE instructions", async () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toBe("");
     const payload = JSON.parse(result.stdout) as {
-      instructions_target?: unknown;
       instructions_path?: unknown;
       changes?: Array<Record<string, unknown>>;
     };
-    expect(payload.instructions_target).toBe("claude");
-    expect(payload.instructions_path).toBe("CLAUDE.md");
+    expect(payload.instructions_path).toBe("AGENTS.md");
     expect(payload.changes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: "CLAUDE.md", action: "would_create" }),
+        expect.objectContaining({ path: "AGENTS.md", action: "would_create" }),
       ]),
     );
     await expect(readFile(path.join(workspace, "CLAUDE.md"), "utf8")).rejects.toThrow();

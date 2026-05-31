@@ -32,7 +32,6 @@ export interface InitOptions {
 }
 
 export type InitHarness = "auto" | "codex" | "claude-code";
-export type InitInstructionsTarget = "agents" | "claude";
 
 export type InitAction =
   | "created"
@@ -55,16 +54,15 @@ export interface InitResult {
   root: string;
   harness: InitHarness;
   resolvedHarness: Exclude<InitHarness, "auto">;
-  instructionsTarget: InitInstructionsTarget;
   instructionsPath: string;
   changes: InitChange[];
   recommendedScripts: Record<string, string>;
 }
 
-const INIT_INSTRUCTIONS_PATHS: Record<InitInstructionsTarget, string> = {
-  agents: "AGENTS.md",
-  claude: "CLAUDE.md",
-};
+// Lockpick instructions always live in AGENTS.md. Claude Code and Codex both
+// read it, so there is no harness-specific instructions file; the harness only
+// selects which hook scripts are installed below.
+const AGENTS_INSTRUCTIONS_PATH = "AGENTS.md";
 
 const RECOMMENDED_PACKAGE_SCRIPTS: Record<string, string> = {
   lockpick: "lockpick",
@@ -97,8 +95,6 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   const harness = options.harness ?? "auto";
   const resolvedHarness = resolveInitHarness(harness, process.env);
   const commitHook = Boolean(options.commitHook);
-  const instructionsTarget = instructionsTargetForHarness(resolvedHarness);
-  const instructionsPath = INIT_INSTRUCTIONS_PATHS[instructionsTarget];
   const config = await loadLockpickConfig({ root });
   const changes: InitChange[] = [];
 
@@ -106,7 +102,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   changes.push(await ensureConfigFile(config, check));
 
   if (config.init.updateAgents) {
-    changes.push(await ensureAgentsInstructions(config, check, instructionsPath));
+    changes.push(await ensureAgentsInstructions(config, check));
   }
   if (resolvedHarness === "claude-code") {
     changes.push(await ensureClaudeHookScript(config, check, commitHook));
@@ -131,8 +127,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
     root,
     harness,
     resolvedHarness,
-    instructionsTarget,
-    instructionsPath,
+    instructionsPath: AGENTS_INSTRUCTIONS_PATH,
     changes,
     recommendedScripts: RECOMMENDED_PACKAGE_SCRIPTS,
   };
@@ -151,12 +146,6 @@ export function resolveInitHarness(
   const codexThread = env.CODEX_THREAD_ID?.trim();
   if (claudeSession && !codexThread) return "claude-code";
   return "codex";
-}
-
-function instructionsTargetForHarness(
-  harness: Exclude<InitHarness, "auto">,
-): InitInstructionsTarget {
-  return harness === "claude-code" ? "claude" : "agents";
 }
 
 export function renderInitResult(result: InitResult): string {
@@ -270,10 +259,9 @@ async function ensureConfigFile(
 async function ensureAgentsInstructions(
   config: ResolvedLockpickConfig,
   check: boolean,
-  instructionsPath: string,
 ): Promise<InitChange> {
-  const agentsPath = path.join(config.root, instructionsPath);
-  const relative = instructionsPath;
+  const agentsPath = path.join(config.root, AGENTS_INSTRUCTIONS_PATH);
+  const relative = AGENTS_INSTRUCTIONS_PATH;
   const snippet = lockpickAgentsSnippet(config);
   const exists = await pathExists(agentsPath);
   const current = exists ? await readText(agentsPath) : "";

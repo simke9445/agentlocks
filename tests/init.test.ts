@@ -61,18 +61,17 @@ test("init updates existing AGENTS and .gitignore without overwriting unrelated 
   });
 });
 
-test("init can target CLAUDE instructions for Claude Code harness", async () => {
+test("init writes AGENTS instructions and Claude hooks for the Claude Code harness", async () => {
   await withWorkspace(async (workspace) => {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
 
     const result = await runInit({ root: workspace, harness: "claude-code" });
 
     expect(result.resolvedHarness).toBe("claude-code");
-    expect(result.instructionsTarget).toBe("claude");
-    expect(result.instructionsPath).toBe("CLAUDE.md");
+    expect(result.instructionsPath).toBe("AGENTS.md");
     expect(result.changes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: "CLAUDE.md", action: "created" }),
+        expect.objectContaining({ path: "AGENTS.md", action: "created" }),
         expect.objectContaining({
           path: CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
           action: "created",
@@ -80,10 +79,10 @@ test("init can target CLAUDE instructions for Claude Code harness", async () => 
         expect.objectContaining({ path: ".claude/settings.json", action: "created" }),
       ]),
     );
-    await expect(readFile(path.join(workspace, "AGENTS.md"), "utf8")).rejects.toThrow();
-    const claude = await readFile(path.join(workspace, "CLAUDE.md"), "utf8");
-    expect(claude).toContain("Lockpick advisory locks");
-    expect(claude).toContain("<!-- lockpick:start -->");
+    await expect(readFile(path.join(workspace, "CLAUDE.md"), "utf8")).rejects.toThrow();
+    const agents = await readFile(path.join(workspace, "AGENTS.md"), "utf8");
+    expect(agents).toContain("Lockpick advisory locks");
+    expect(agents).toContain("<!-- lockpick:start -->");
 
     const settings = JSON.parse(
       await readFile(path.join(workspace, ".claude/settings.json"), "utf8"),

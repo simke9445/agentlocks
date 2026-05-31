@@ -13,7 +13,6 @@ export {
   CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
   CODEX_COMMIT_HOOK_SCRIPT_PATH,
   type InitHarness,
-  type InitInstructionsTarget,
   type InitResult,
   lockpickAgentsSnippet,
   renderClaudeCommitHookScript,

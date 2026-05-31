@@ -34,7 +34,6 @@ function compactInitResult(
     check: options.check,
     harness: result.harness,
     resolved_harness: result.resolvedHarness,
-    instructions_target: result.instructionsTarget,
     instructions_path: result.instructionsPath,
     change_count: result.changes.length,
     changes: result.changes.map((change) => ({

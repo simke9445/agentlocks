@@ -668,6 +668,86 @@ test("status --json carries each lock's classification", async () => {
   });
 });
 
+test("conflict json carries ahead_of and an honest retry-after floor", async () => {
+  await withWorkspace(async (workspace) => {
+    const now = new Date("2026-05-04T10:00:00Z");
+    const config = resolveLockpickConfig({}, { root: workspace });
+    const registryOptions = {
+      now: () => now,
+      sessionProbe: () => ({ status: "unknown" as const, evidence: "u" }),
+    };
+    await executeLockCommand(
+      {
+        name: "acquire",
+        paths: ["m.ts"],
+        globs: [],
+        reason: "edit",
+        ttlMs: 600_000,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config, registryOptions },
+    );
+    const conflict = await executeLockCommand(
+      {
+        name: "acquire",
+        paths: ["m.ts"],
+        globs: [],
+        reason: "edit2",
+        ttlMs: 600_000,
+        agentId: "session-b",
+        json: true,
+        idOnly: false,
+      },
+      { cwd: workspace, config, registryOptions },
+    );
+    expect(conflict.exitCode).toBe(3);
+    expect(conflict.json).toMatchObject({ kind: "conflict", ahead_of: 1, retry_after_ms: 600_000 });
+  });
+});
+
+test("multi-incumbent conflict render leads with the binding constraint", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const config = resolveLockpickConfig({}, { root: workspace });
+    const registry = testRegistry(
+      workspace,
+      () => now,
+      (owner) =>
+        lockOwnerAgentId(owner) === "session-live"
+          ? { status: "live", evidence: "alive" }
+          : { status: "dead", evidence: "dead" },
+    );
+    await registry.acquire({
+      paths: ["a.ts"],
+      reason: "edit a",
+      ttlMs: 1000,
+      agentId: "session-dead",
+    });
+    await registry.acquire({
+      paths: ["b.ts"],
+      reason: "edit b",
+      ttlMs: 1000,
+      agentId: "session-live",
+    });
+    now = new Date("2026-05-04T10:05:00Z");
+
+    const conflict = await registry.acquire({
+      globs: ["*.ts"],
+      reason: "format",
+      agentId: "session-c",
+    });
+    expect(conflict.exitCode).toBe(3);
+    const text = renderLockResult(conflict, false, config);
+    expect(text).toContain("2 unit(s) across 2 holders");
+    const liveIndex = text.indexOf("expired-live");
+    const reclaimableIndex = text.indexOf("reclaimable");
+    expect(liveIndex).toBeGreaterThanOrEqual(0);
+    expect(liveIndex).toBeLessThan(reclaimableIndex);
+  });
+});
+
 function testRegistry(
   workspace: string,
   now: Date | (() => Date),

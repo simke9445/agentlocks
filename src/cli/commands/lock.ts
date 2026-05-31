@@ -9,6 +9,7 @@ export async function runLockCommand(command: LockCommand): Promise<void> {
     );
   } else {
     console.log(result.text);
+    if (result.stderr) console.error(result.stderr);
   }
   if (result.exitCode !== 0) process.exitCode = result.exitCode;
 }

@@ -133,14 +133,18 @@ export class FileLockRegistry {
       if (conflicts.length > 0) {
         const allReclaimable = conflicts.every((conflict) => conflict.status === "reclaimable");
         const reclaimRequested = params.reclaimConflicts ?? this.autoReclaimOnConflict;
-        if (!(reclaimRequested && allReclaimable)) return conflictResult(resources, conflicts);
+        if (!(reclaimRequested && allReclaimable)) {
+          return conflictResult(resources, conflicts, now, this.unknownLivenessGraceMs);
+        }
         reclaimed = conflicts.map((conflict) => conflict.lock);
         await this.reclaimLocks(reclaimed, {
           cause: "auto-reclaim",
           reclaimedBy: lockOwnerAgentId(owner),
         });
         const residual = await this.findConflicts(resources, await this.readActiveLocks(), now);
-        if (residual.length > 0) return conflictResult(resources, residual);
+        if (residual.length > 0) {
+          return conflictResult(resources, residual, now, this.unknownLivenessGraceMs);
+        }
       }
 
       const lock: FileLockRecord = {
@@ -190,7 +194,9 @@ export class FileLockRegistry {
         locks.filter((lock) => lock.lockId !== existing.lockId),
         now,
       );
-      if (conflicts.length > 0) return conflictResult(resources, conflicts);
+      if (conflicts.length > 0) {
+        return conflictResult(resources, conflicts, now, this.unknownLivenessGraceMs);
+      }
 
       const nextTtlMs = ttlMs ?? existing.ttlMs;
       const lock: FileLockRecord = {
@@ -556,15 +562,40 @@ export class FileLockRegistry {
   }
 }
 
-function conflictResult(resources: LockResource[], conflicts: LockConflict[]): LockOperationResult {
+function conflictResult(
+  resources: LockResource[],
+  conflicts: LockConflict[],
+  now: Date,
+  graceMs: number,
+): LockOperationResult {
+  const action = conflicts.every((conflict) => conflict.status === "reclaimable")
+    ? "prune_then_retry"
+    : "retry_later";
+  const aheadOf = new Set(conflicts.map((conflict) => lockOwnerAgentId(conflict.lock.owner))).size;
+  // An honest floor below which retrying cannot succeed (an expired-live holder
+  // is not time-bounded, so omit the floor entirely when one is present).
+  const hasExpiredLive = conflicts.some((conflict) => conflict.status === "expired-live");
+  let minRetryAfterMs: number | undefined;
+  if (!hasExpiredLive && conflicts.length > 0) {
+    minRetryAfterMs = Math.max(
+      0,
+      ...conflicts.map((conflict) => {
+        const expiry = Date.parse(conflict.lock.leaseExpiresAt);
+        if (!Number.isFinite(expiry)) return 0;
+        if (conflict.status === "reclaimable") return 0;
+        if (conflict.status === "expired-unknown") return expiry + graceMs - now.getTime();
+        return expiry - now.getTime();
+      }),
+    );
+  }
   return {
     kind: "conflict",
     exitCode: 3,
-    suggestedAction: conflicts.every((conflict) => conflict.status === "reclaimable")
-      ? "prune_then_retry"
-      : "retry_later",
+    suggestedAction: action,
     resources,
     conflicts,
+    aheadOf,
+    ...(minRetryAfterMs !== undefined ? { minRetryAfterMs } : {}),
   };
 }
 

@@ -22,6 +22,7 @@ export interface LockCommandOutput {
   exitCode: number;
   text: string;
   json?: unknown;
+  stderr?: string;
 }
 
 export interface ExecuteLockCommandOptions {
@@ -135,6 +136,7 @@ export async function executeLockCommand(
     exitCode: result.exitCode,
     text: result.text,
     json: result.json,
+    ...(result.stderr !== undefined ? { stderr: result.stderr } : {}),
   };
 }
 
@@ -142,7 +144,7 @@ function renderCommandResults(
   command: LockCommand,
   results: LockOperationResult[],
   config: ResolvedLockpickConfig,
-): { exitCode: number; text: string; json: unknown } {
+): { exitCode: number; text: string; json: unknown; stderr?: string } {
   const exitCode = results.find((result) => result.exitCode !== 0)?.exitCode ?? 0;
   const isBatch = results.length !== 1;
   const firstResult = results[0];
@@ -160,14 +162,30 @@ function renderCommandResults(
         : firstResult
           ? compactLockJson(firstResult)
           : emptyJson;
+  const rendered = renderCommandText(command, results, config, exitCode);
   return {
     exitCode,
-    text:
-      command.idOnly && exitCode === 0
-        ? renderLockIds(command, results)
-        : renderResults(results, command.verbose === true, config),
+    text: rendered.text,
     json,
+    ...(rendered.stderr !== undefined ? { stderr: rendered.stderr } : {}),
   };
+}
+
+function renderCommandText(
+  command: LockCommand,
+  results: LockOperationResult[],
+  config: ResolvedLockpickConfig,
+  exitCode: number,
+): { text: string; stderr?: string } {
+  if (command.idOnly && exitCode === 0) {
+    return { text: renderLockIds(command, results) };
+  }
+  const single = results.length === 1 ? results[0] : undefined;
+  if (single && single.kind === "conflict" && command.verbose !== true) {
+    const { data, next } = conflictRender(single, config);
+    return { text: data.join("\n"), stderr: next };
+  }
+  return { text: renderResults(results, command.verbose === true, config) };
 }
 
 function compactLockJson(result: LockOperationResult): Record<string, unknown> {
@@ -195,6 +213,8 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         kind: "conflict",
         exitCode: result.exitCode,
         suggested_action: result.suggestedAction,
+        ahead_of: result.aheadOf ?? 0,
+        ...(result.minRetryAfterMs !== undefined ? { retry_after_ms: result.minRetryAfterMs } : {}),
         conflicts: (result.conflicts ?? []).map((conflict) => ({
           lock_id: conflict.lock.lockId,
           owner: lockOwnerAgentId(conflict.lock.owner),
@@ -303,8 +323,10 @@ export function renderLockResult(
           : []),
         ...renderResources(result.lock?.resources ?? []),
       ].join("\n");
-    case "conflict":
-      return renderConflict(result.conflicts ?? [], result.suggestedAction, config);
+    case "conflict": {
+      const { data, next } = conflictRender(result, config);
+      return [...data, next].join("\n");
+    }
     case "refreshed":
       return `lock refreshed: ${result.lock?.lockId ?? "<unknown>"}`;
     case "released":
@@ -335,30 +357,63 @@ function renderResources(resources: LockResource[]): string[] {
   return ["resources:", ...resources.map((resource) => `- ${resource.kind} ${resource.value}`)];
 }
 
-function renderConflict(
-  conflicts: LockConflict[],
-  action: string,
+function conflictRender(
+  result: LockOperationResult,
   config: ResolvedLockpickConfig | undefined,
-): string {
-  const first = conflicts[0];
-  if (!first) return "lock conflict";
-  const resourceText = first.resources.map((resource) => resource.value).join(", ");
-  const expiresAt = Date.parse(first.lock.leaseExpiresAt);
-  const leaseText = Number.isFinite(expiresAt)
+): { data: string[]; next: string } {
+  const conflicts = result.conflicts ?? [];
+  const next = conflictNextLine(result.suggestedAction, config);
+  if (conflicts.length <= 1) {
+    const first = conflicts[0];
+    if (!first) return { data: ["lock conflict"], next };
+    return {
+      data: [
+        `lock conflict: ${first.resources.map((resource) => resource.value).join(", ")}`,
+        `held by: ${lockOwnerAgentId(first.lock.owner)}`,
+        `reason: ${first.lock.reason}`,
+        `status: ${first.status}, ${conflictLeaseText(first.lock)}`,
+      ],
+      next,
+    };
+  }
+  // Multiple holders: lead with the binding constraint (non-reclaimable holders
+  // first) so an agent does not prune around a still-live blocker.
+  const ordered = [...conflicts].sort((left, right) => conflictRank(left) - conflictRank(right));
+  const shown = ordered.slice(0, 3);
+  const totalUnits = conflicts.reduce((sum, conflict) => sum + conflict.resources.length, 0);
+  const data = [`lock conflict: ${totalUnits} unit(s) across ${conflicts.length} holders`];
+  for (const conflict of shown) {
+    data.push(
+      `- ${conflict.resources.map((resource) => resource.value).join(", ")} | ${lockOwnerAgentId(
+        conflict.lock.owner,
+      )} (${conflict.status}, ${conflictLeaseText(conflict.lock)})`,
+    );
+  }
+  if (conflicts.length > shown.length) {
+    const reclaimable = conflicts.filter((conflict) => conflict.status === "reclaimable").length;
+    data.push(`+${conflicts.length - shown.length} more holders (${reclaimable} reclaimable)`);
+  }
+  return { data, next };
+}
+
+function conflictRank(conflict: LockConflict): number {
+  return conflict.status === "reclaimable" ? 1 : 0;
+}
+
+function conflictLeaseText(lock: LockConflict["lock"]): string {
+  const expiresAt = Date.parse(lock.leaseExpiresAt);
+  return Number.isFinite(expiresAt)
     ? `expires ${new Date(expiresAt).toISOString().replace(/\.\d{3}Z$/, "Z")}`
     : "lease expiry unknown";
+}
+
+function conflictNextLine(action: string, config: ResolvedLockpickConfig | undefined): string {
   const pruneCommand = config ? renderLockpickCommand(config, ["prune"]) : "lockpick prune";
   const next =
     action === "prune_then_retry"
       ? `${pruneCommand}, then retry`
       : "work on unrelated unlocked files, then retry";
-  return [
-    `lock conflict: ${resourceText}`,
-    `held by: ${lockOwnerAgentId(first.lock.owner)}`,
-    `reason: ${first.lock.reason}`,
-    `status: ${first.status}, ${leaseText}`,
-    `next: ${next}`,
-  ].join("\n");
+  return `next: ${next}`;
 }
 
 function renderStatus(locks: ClassifiedLock[]): string {

@@ -288,6 +288,35 @@ test("identify rejects id-only with a precise replacement command", async () => 
   expect(payload.message).toContain("lockpick identify --json");
 });
 
+test("non-json conflict writes data to stdout and the next step to stderr", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-conflict-"));
+  const env = {
+    CLAUDE_CODE_SESSION_ID: "",
+    CODEX_THREAD_ID: "",
+    LOCKPICK_HARNESS_AGENT_ID: "",
+    LOCKPICK_AGENT_ID: "",
+  };
+  try {
+    await runCli(
+      ["acquire", "shared.ts", "--reason", "first", "--agent-id", "agent-1"],
+      workspace,
+      env,
+    );
+    const conflict = await runCli(
+      ["acquire", "shared.ts", "--reason", "second", "--agent-id", "agent-2"],
+      workspace,
+      env,
+    );
+    expect(conflict.code).toBe(3);
+    expect(conflict.stdout).toContain("lock conflict: shared.ts");
+    expect(conflict.stdout).not.toContain("next:");
+    expect(conflict.stderr).toContain("next:");
+    expect(conflict.stderr).toContain("retry");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("capabilities json is compact and machine-readable", async () => {
   const result = await runCli(["capabilities", "--json"]);
   expect(result.code).toBe(0);

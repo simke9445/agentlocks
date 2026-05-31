@@ -1,9 +1,11 @@
 import { loadLockpickConfig, type ResolvedLockpickConfig, renderLockpickCommand } from "../config";
 import { FileLockRegistry, type FileLockRegistryOptions } from "./registry";
 import {
+  createHarnessSessionProbe,
   createUnknownSessionProbe,
   lockOwnerAgentId,
   lockOwnerSource,
+  probeClaudeCodeSessionLiveness,
   probeCodexSessionLiveness,
 } from "./session";
 import type {
@@ -44,7 +46,13 @@ export async function executeLockCommand(
     maxTtlMs: config.defaults.maxTtlMs,
     unknownLivenessGraceMs: config.defaults.unknownLivenessGraceMs,
     sessionProbe:
-      config.liveness.adapter === "codex" ? probeCodexSessionLiveness : createUnknownSessionProbe(),
+      config.liveness.adapter === "codex"
+        ? probeCodexSessionLiveness
+        : config.liveness.adapter === "claude-code"
+          ? probeClaudeCodeSessionLiveness
+          : config.liveness.adapter === "auto"
+            ? createHarnessSessionProbe()
+            : createUnknownSessionProbe(),
     ...options.registryOptions,
   });
   const results: LockOperationResult[] = [];

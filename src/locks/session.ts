@@ -1,8 +1,11 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathExists } from "../io";
 import type { LockOwner, LockOwnerHarness, LockOwnerHarnessScope, SessionLiveness } from "./types";
-import { MAX_LOCK_TTL_MS } from "./types";
+import { CLAUDECODE_LIVENESS_STALE_MS, MAX_LOCK_TTL_MS } from "./types";
+
+export const CLAUDE_PROJECTS_DIR_ENV_KEY = "LOCKPICK_CLAUDE_PROJECTS_DIR";
 
 export const DEFAULT_AGENT_ENV_KEYS = ["LOCKPICK_AGENT_ID"] as const;
 export const DEFAULT_OWNER_HARNESSES = ["codex", "claude-code"] as const;
@@ -156,6 +159,137 @@ export async function probeCodexSessionLiveness(
     return { status: "live", evidence: `session updated ${Math.max(0, ageMs)}ms ago` };
   }
   return { status: "dead", evidence: `session last updated ${Math.max(0, ageMs)}ms ago` };
+}
+
+export interface ClaudeCodeProbeOptions {
+  projectsDir?: string;
+  staleMs?: number;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Liveness from the Claude Code session transcript the harness appends to on
+ * every turn — fresh when the agent is alive and working, independent of how
+ * often the agent calls lockpick. Missing transcript => the session is gone
+ * (dead); a stale-but-present transcript stays "unknown" (it may be a long
+ * tool call) so it falls through to the short unknown-liveness grace instead of
+ * false-reclaiming a live owner mid-work.
+ */
+export function createClaudeCodeSessionProbe(
+  options: ClaudeCodeProbeOptions = {},
+): SessionLivenessProbe {
+  return (owner, now) => probeClaudeCodeSession(owner, now, options);
+}
+
+export function probeClaudeCodeSessionLiveness(
+  owner: LockOwner,
+  now: Date,
+): Promise<SessionLiveness> {
+  return probeClaudeCodeSession(owner, now, {});
+}
+
+export interface HarnessSessionProbeOptions {
+  claude?: ClaudeCodeProbeOptions;
+}
+
+/**
+ * Dispatches to the right liveness probe by the owner's detected harness, so a
+ * codex-owned lock is probed against the codex session index and a Claude Code
+ * lock against its transcript, regardless of global config. Unknown harnesses
+ * fall through to the unknown-liveness grace.
+ */
+export function createHarnessSessionProbe(
+  options: HarnessSessionProbeOptions = {},
+): SessionLivenessProbe {
+  const claudeProbe = createClaudeCodeSessionProbe(options.claude);
+  return (owner, now) => {
+    if (owner.harness === "codex") return probeCodexSessionLiveness(owner, now);
+    if (owner.harness === "claude-code") return claudeProbe(owner, now);
+    return { status: "unknown", evidence: "no harness liveness signal for owner" };
+  };
+}
+
+async function probeClaudeCodeSession(
+  owner: LockOwner,
+  now: Date,
+  options: ClaudeCodeProbeOptions,
+): Promise<SessionLiveness> {
+  const env = options.env ?? process.env;
+  const current = detectHarnessAgentId(env, ["claude-code"]);
+  const agentId = lockOwnerAgentId(owner);
+  if (current && current.agentId === agentId) {
+    return { status: "live", evidence: "owner matches current CLAUDE_CODE_SESSION_ID" };
+  }
+
+  const rawSessionId = owner.rawSessionId ?? claudeSessionIdFromAgentId(agentId);
+  if (!rawSessionId) {
+    return { status: "unknown", evidence: "owner session id was not available" };
+  }
+
+  const projectsDir = options.projectsDir ?? claudeProjectsHome(env);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(projectsDir);
+  } catch {
+    return { status: "unknown", evidence: `could not read ${projectsDir}` };
+  }
+
+  const transcriptPath = await findClaudeTranscript(projectsDir, entries, owner.cwd, rawSessionId);
+  if (!transcriptPath) {
+    return { status: "dead", evidence: `session transcript missing under ${projectsDir}` };
+  }
+
+  let updatedAt: number;
+  try {
+    updatedAt = (await fs.stat(transcriptPath)).mtimeMs;
+  } catch {
+    return { status: "unknown", evidence: `could not read ${transcriptPath}` };
+  }
+
+  const ageMs = now.getTime() - updatedAt;
+  const staleMs = options.staleMs ?? CLAUDECODE_LIVENESS_STALE_MS;
+  if (ageMs <= staleMs) {
+    return {
+      status: "live",
+      evidence: `session transcript updated ${Math.max(0, Math.round(ageMs))}ms ago`,
+    };
+  }
+  return {
+    status: "unknown",
+    evidence: `session transcript last updated ${Math.max(0, Math.round(ageMs))}ms ago`,
+  };
+}
+
+function claudeProjectsHome(env: NodeJS.ProcessEnv): string {
+  const explicit = env[CLAUDE_PROJECTS_DIR_ENV_KEY]?.trim();
+  if (explicit) return explicit;
+  const configHome = env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
+  return path.join(configHome, "projects");
+}
+
+function claudeSessionIdFromAgentId(agentId: string): string | null {
+  const match = agentId.match(/^claude-code:([^:]+)/);
+  return match?.[1] ?? null;
+}
+
+async function findClaudeTranscript(
+  projectsDir: string,
+  entries: string[],
+  cwd: string,
+  sessionId: string,
+): Promise<string | null> {
+  const fileName = `${sessionId}.jsonl`;
+  const fastPath = path.join(projectsDir, mungeClaudeCwd(cwd), fileName);
+  if (await pathExists(fastPath)) return fastPath;
+  for (const entry of entries) {
+    const candidate = path.join(projectsDir, entry, fileName);
+    if (await pathExists(candidate)) return candidate;
+  }
+  return null;
+}
+
+function mungeClaudeCwd(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 export function lockOwnerAgentId(owner: LockOwner): string {

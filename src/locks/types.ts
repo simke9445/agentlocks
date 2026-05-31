@@ -1,7 +1,12 @@
 export const LOCK_SCHEMA_VERSION = 1;
 export const DEFAULT_LOCK_TTL_MS = 600_000;
 export const MAX_LOCK_TTL_MS = 1_800_000;
-export const DEFAULT_UNKNOWN_LIVENESS_GRACE_MS = DEFAULT_LOCK_TTL_MS;
+// Grace applied after lease expiry when liveness cannot be proven. Short by
+// default: an un-probeable owner is not evidence of life, so a dead generic or
+// Claude Code lock becomes reclaimable shortly after its lease lapses.
+export const DEFAULT_UNKNOWN_LIVENESS_GRACE_MS = 90_000;
+// Maximum age of a Claude Code session transcript still treated as "live".
+export const CLAUDECODE_LIVENESS_STALE_MS = 300_000;
 export const REGISTRY_MUTEX_STALE_MS = 30_000;
 export const GIT_INDEX_RESOURCE = "@git/index";
 

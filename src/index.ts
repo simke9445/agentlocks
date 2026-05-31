@@ -26,16 +26,22 @@ export { FileLockRegistry } from "./locks/registry";
 export { normalizeLockResources } from "./locks/resources";
 export {
   CLAUDE_CODE_SESSION_ENV_KEY,
+  CLAUDE_PROJECTS_DIR_ENV_KEY,
+  type ClaudeCodeProbeOptions,
   CODEX_OWNER_ENV_KEY,
+  createClaudeCodeSessionProbe,
+  createHarnessSessionProbe,
   createUnknownSessionProbe,
   DEFAULT_AGENT_ENV_KEYS,
   DEFAULT_OWNER_HARNESSES,
   detectAgentId,
   detectHarnessAgentId,
+  type HarnessSessionProbeOptions,
   identifyLockOwner,
   LOCKPICK_HARNESS_AGENT_ENV_KEY,
   lockOwnerAgentId,
   lockOwnerSource,
+  probeClaudeCodeSessionLiveness,
   probeCodexSessionLiveness,
   type SessionLivenessProbe,
 } from "./locks/session";

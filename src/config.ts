@@ -16,7 +16,7 @@ import {
 export const DEFAULT_LOCK_ROOT = ".lockpick/locks";
 export const DEFAULT_CONFIG_FILE = "lockpick.config.ts";
 
-export type LivenessAdapterName = "unknown" | "codex";
+export type LivenessAdapterName = "auto" | "unknown" | "codex" | "claude-code";
 
 export interface LockpickCommandConfig {
   executable?: string;
@@ -133,14 +133,14 @@ export function resolveLockpickConfig(
     defaults: {
       ttlMs: normalizePositiveInteger(config.defaults?.ttlMs, DEFAULT_LOCK_TTL_MS, "ttlMs"),
       maxTtlMs: normalizePositiveInteger(config.defaults?.maxTtlMs, MAX_LOCK_TTL_MS, "maxTtlMs"),
-      unknownLivenessGraceMs: normalizePositiveInteger(
+      unknownLivenessGraceMs: normalizeNonNegativeInteger(
         config.defaults?.unknownLivenessGraceMs,
         DEFAULT_UNKNOWN_LIVENESS_GRACE_MS,
         "unknownLivenessGraceMs",
       ),
     },
     owner,
-    liveness: { adapter: config.liveness?.adapter ?? "unknown" },
+    liveness: { adapter: config.liveness?.adapter ?? "auto" },
     agents: {
       enabled: config.agents?.enabled ?? true,
       heading: config.agents?.heading ?? "Lockpick coordination",
@@ -217,6 +217,18 @@ function normalizePositiveInteger(
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved <= 0) {
     throw new Error(`Lockpick ${label} must be a positive integer.`);
+  }
+  return resolved;
+}
+
+function normalizeNonNegativeInteger(
+  value: number | undefined,
+  fallback: number,
+  label: string,
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < 0) {
+    throw new Error(`Lockpick ${label} must be a non-negative integer.`);
   }
   return resolved;
 }

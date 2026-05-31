@@ -15,6 +15,8 @@ import {
   type SessionLivenessProbe,
 } from "./session";
 import type {
+  BoardAgent,
+  BoardLock,
   ClassifiedLock,
   FileLockRecord,
   LockConflict,
@@ -275,6 +277,42 @@ export class FileLockRegistry {
     };
   }
 
+  async board(request: LockResourceRequest = {}): Promise<LockOperationResult> {
+    const resources = await this.normalizeRequestedResources(request, false);
+    const now = this.now();
+    const locks = await this.readActiveLocks();
+    const classified = await Promise.all(locks.map(async (lock) => this.classifyLock(lock, now)));
+    const matching =
+      resources.length === 0
+        ? classified
+        : classified.filter((item) => resourceSetsConflict(resources, item.lock.resources));
+    const byAgent = new Map<string, BoardLock[]>();
+    for (const item of matching) {
+      const agentId = lockOwnerAgentId(item.lock.owner);
+      const rows = byAgent.get(agentId) ?? [];
+      rows.push({
+        lockId: item.lock.lockId,
+        status: item.status,
+        resources: item.lock.resources.map((resource) => resource.value),
+        reason: item.lock.reason,
+        when: boardWhen(item, now, this.unknownLivenessGraceMs),
+        reclaimable: item.status === "reclaimable",
+      });
+      byAgent.set(agentId, rows);
+    }
+    const board: BoardAgent[] = [...byAgent.entries()].map(([agentId, agentLocks]) => ({
+      agentId,
+      locks: agentLocks,
+    }));
+    return {
+      kind: "board",
+      exitCode: 0,
+      suggestedAction: "status",
+      board,
+      resources,
+    };
+  }
+
   async prune(dryRun = false): Promise<LockOperationResult> {
     const now = this.now();
     return this.withMutex(async () => {
@@ -528,6 +566,30 @@ function conflictResult(resources: LockResource[], conflicts: LockConflict[]): L
     resources,
     conflicts,
   };
+}
+
+function boardWhen(item: ClassifiedLock, now: Date, graceMs: number): string {
+  const expiry = Date.parse(item.lock.leaseExpiresAt);
+  switch (item.status) {
+    case "held":
+      return Number.isFinite(expiry) ? `expires in ${humanizeMs(expiry - now.getTime())}` : "held";
+    case "expired-live":
+      return "owner active";
+    case "expired-unknown":
+      return Number.isFinite(expiry)
+        ? `reclaimable in ${humanizeMs(expiry + graceMs - now.getTime())}`
+        : "reclaim pending";
+    case "reclaimable":
+      return "reclaimable now";
+    default:
+      return item.status;
+  }
+}
+
+function humanizeMs(ms: number): string {
+  const clamped = Math.max(0, ms);
+  if (clamped < 60_000) return `${Math.round(clamped / 1000)}s`;
+  return `${Math.round(clamped / 60_000)}m`;
 }
 
 function normalizedReason(reason: string): string {

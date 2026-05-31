@@ -597,6 +597,77 @@ test("keep-alive extends an agent's recent siblings but not stale over-grabs", a
   });
 });
 
+test("board groups active locks by agent with lease state and next step", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const registry = testRegistry(
+      workspace,
+      () => now,
+      () => ({
+        status: "dead",
+        evidence: "dead",
+      }),
+    );
+    await registry.acquire({
+      paths: ["a.ts"],
+      reason: "edit a",
+      ttlMs: 600_000,
+      agentId: "session-a",
+    });
+    await registry.acquire({
+      paths: ["b.ts"],
+      reason: "edit b",
+      ttlMs: 1000,
+      agentId: "session-b",
+    });
+    now = new Date("2026-05-04T10:05:00Z");
+
+    const board = await registry.board();
+    expect(board.kind).toBe("board");
+    expect(board.board).toHaveLength(2);
+    const a = board.board?.find((agent) => agent.agentId === "session-a");
+    const b = board.board?.find((agent) => agent.agentId === "session-b");
+    expect(a?.locks[0]?.status).toBe("held");
+    expect(b?.locks[0]?.status).toBe("reclaimable");
+    expect(b?.locks[0]?.reclaimable).toBe(true);
+    expect(b?.locks[0]?.when).toBe("reclaimable now");
+  });
+});
+
+test("status --json carries each lock's classification", async () => {
+  await withWorkspace(async (workspace) => {
+    let now = new Date("2026-05-04T10:00:00Z");
+    const config = resolveLockpickConfig({}, { root: workspace });
+    const registryOptions = {
+      now: () => now,
+      sessionProbe: () => ({ status: "dead" as const, evidence: "dead" }),
+    };
+    const acquired = await executeLockCommand(
+      {
+        name: "acquire",
+        paths: ["s.ts"],
+        globs: [],
+        reason: "edit",
+        ttlMs: 1000,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config, registryOptions },
+    );
+    now = new Date("2026-05-04T10:00:05Z");
+    const status = await executeLockCommand(
+      { name: "status", paths: [], globs: [], json: true, idOnly: false },
+      { cwd: workspace, config, registryOptions },
+    );
+    expect(status.json).toMatchObject({
+      kind: "status",
+      lock_count: 1,
+      locks: [{ lock_id: acquired.text.trim(), status: "reclaimable" }],
+    });
+  });
+});
+
 function testRegistry(
   workspace: string,
   now: Date | (() => Date),

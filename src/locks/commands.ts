@@ -9,6 +9,7 @@ import {
   probeCodexSessionLiveness,
 } from "./session";
 import type {
+  BoardAgent,
   ClassifiedLock,
   LockCommand,
   LockConflict,
@@ -96,6 +97,9 @@ export async function executeLockCommand(
       break;
     case "status":
       results.push(await registry.status({ paths: command.paths, globs: command.globs }));
+      break;
+    case "board":
+      results.push(await registry.board({ paths: command.paths, globs: command.globs }));
       break;
     case "prune":
       results.push(await registry.prune(command.dryRun));
@@ -205,7 +209,29 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         exitCode: result.exitCode,
         lock_count: result.locks?.length ?? 0,
         lock_ids: (result.locks ?? []).map((item) => item.lock.lockId),
+        locks: (result.locks ?? []).map((item) => ({
+          lock_id: item.lock.lockId,
+          status: item.status,
+        })),
       };
+    case "board": {
+      const agents = result.board ?? [];
+      return {
+        kind: "board",
+        exitCode: result.exitCode,
+        agent_count: agents.length,
+        lock_count: agents.reduce((total, agent) => total + agent.locks.length, 0),
+        agents: agents.map((agent) => ({
+          agent: agent.agentId,
+          locks: agent.locks.map((lock) => ({
+            lock_id: lock.lockId,
+            status: lock.status,
+            resources: lock.resources,
+            reclaimable: lock.reclaimable,
+          })),
+        })),
+      };
+    }
     case "pruned":
       return {
         kind: "pruned",
@@ -242,11 +268,16 @@ function renderLockIds(command: LockCommand, results: LockOperationResult[]): st
   const statusIds = results.flatMap((result) =>
     result.kind === "status" ? (result.locks ?? []).map((item) => item.lock.lockId) : [],
   );
+  const boardIds = results.flatMap((result) =>
+    result.kind === "board"
+      ? (result.board ?? []).flatMap((agent) => agent.locks.map((lock) => lock.lockId))
+      : [],
+  );
   const prunedIds = results.flatMap((result) =>
     result.kind === "pruned" ? (result.pruned ?? []).map((lock) => lock.lockId) : [],
   );
   const lockIds = idResults.map((result) => result.lock?.lockId).filter((id): id is string => !!id);
-  const ids = [...statusIds, ...prunedIds, ...lockIds];
+  const ids = [...statusIds, ...boardIds, ...prunedIds, ...lockIds];
   return ids.join("\n");
 }
 
@@ -280,6 +311,8 @@ export function renderLockResult(
       return `lock released: ${result.lock?.lockId ?? "<unknown>"}`;
     case "status":
       return verbose ? renderStatus(result.locks ?? []) : renderStatusSummary(result.locks ?? []);
+    case "board":
+      return renderBoard(result.board ?? []);
     case "pruned":
       return result.dryRun
         ? `prunable locks: ${result.pruned?.length ?? 0}`
@@ -341,6 +374,23 @@ function renderStatus(locks: ClassifiedLock[]): string {
       ].join("\n"),
     )
     .join("\n\n");
+}
+
+function renderBoard(board: BoardAgent[]): string {
+  if (board.length === 0) return "No active locks.";
+  const total = board.reduce((sum, agent) => sum + agent.locks.length, 0);
+  const blocks = board.map((agent) =>
+    [
+      `agent ${agent.agentId}`,
+      ...agent.locks.map(
+        (lock) =>
+          `- ${lock.resources.join(", ")} (${lock.reason}) | ${lock.status}, ${lock.when}${
+            lock.reclaimable ? " -> prune, then acquire" : ""
+          }`,
+      ),
+    ].join("\n"),
+  );
+  return [`board: ${total} active lock(s) across ${board.length} agent(s)`, ...blocks].join("\n");
 }
 
 function agentIdText(owner: LockOperationResult["owner"]): string {

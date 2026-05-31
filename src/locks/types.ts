@@ -85,16 +85,41 @@ export interface LockConflict {
   resources: LockResource[];
 }
 
+export interface BoardLock {
+  lockId: string;
+  status: LockLeaseStatus;
+  resources: string[];
+  reason: string;
+  when: string;
+  reclaimable: boolean;
+}
+
+export interface BoardAgent {
+  agentId: string;
+  locks: BoardLock[];
+}
+
 export interface LockOperationResult {
-  kind: "acquired" | "conflict" | "refreshed" | "released" | "status" | "pruned" | "identified";
+  kind:
+    | "acquired"
+    | "conflict"
+    | "refreshed"
+    | "released"
+    | "status"
+    | "board"
+    | "pruned"
+    | "identified";
   exitCode: number;
   suggestedAction: SuggestedLockAction;
   lock?: FileLockRecord;
   locks?: ClassifiedLock[];
+  board?: BoardAgent[];
   resources?: LockResource[];
   conflicts?: LockConflict[];
   pruned?: FileLockRecord[];
   reclaimed?: FileLockRecord[];
+  minRetryAfterMs?: number;
+  aheadOf?: number;
   dryRun?: boolean;
   owner?: LockOwner;
 }
@@ -136,6 +161,11 @@ export type LockCommand =
     } & LockCommandOutputOptions)
   | ({
       name: "status";
+      paths: string[];
+      globs: string[];
+    } & LockCommandOutputOptions)
+  | ({
+      name: "board";
       paths: string[];
       globs: string[];
     } & LockCommandOutputOptions)

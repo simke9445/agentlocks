@@ -279,6 +279,32 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
 
   addLockOutputOptions(
     program
+      .command("board")
+      .description(
+        "Show active locks grouped by agent, with each lock's lease state and next step.",
+      )
+      .argument("[paths...]", "Repo-relative file paths.")
+      .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .allowExcessArguments(false),
+  ).action((paths: string[], _options: LockStatusOptions, command: Command) => {
+    const options = command.opts<LockStatusOptions>();
+    onCommand?.({
+      kind: "lock",
+      command: withLockVerbose(
+        {
+          name: "board",
+          paths,
+          globs: options.glob ?? [],
+          json: Boolean(options.json),
+          idOnly: Boolean(options.idOnly),
+        },
+        options,
+      ),
+    });
+  });
+
+  addLockOutputOptions(
+    program
       .command("prune")
       .description("Remove reclaimable expired locks.")
       .option("--dry-run", "Print reclaimable locks without deleting them.")

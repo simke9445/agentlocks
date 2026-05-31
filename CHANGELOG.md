@@ -3,7 +3,7 @@
 All notable changes to Lockpick are documented here. Lockpick is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
-## Unreleased
+## 0.4.1
 
 ### Changed
 
@@ -12,6 +12,11 @@ contract change in place with no migration layer.
   `AGENTS.md` block as the default harness (it still installs the `.claude/` `PreToolUse` hooks and
   settings). The `init --json` payload drops the now-redundant `instructions_target` field;
   `instructions_path` is always `AGENTS.md`. The exported `InitInstructionsTarget` type is removed.
+- The generated `AGENTS.md` instructions now make **`lockpick commit` the preferred commit path**, with
+  an explanation of what it does (locks the paths and the shared Git index, stages and commits only those
+  paths pathspec-scoped, fences the index against a reclaimed lease, and releases — no lock ids to thread).
+  The manual `git begin` → `git add`/`git commit` → `git end --git-token` flow is documented as the
+  lower-level alternative.
 
 ## 0.4.0
 

@@ -168,6 +168,14 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
   ]);
   const expand = renderLockpickCommand(config, ["expand", "--lock", "<lock_id>", "<paths...>"]);
   const refresh = renderLockpickCommand(config, ["refresh", "<lock_id>"]);
+  const commit = renderLockpickCommand(config, [
+    "commit",
+    "<paths...>",
+    "--reason",
+    '"<commit intent>"',
+    "-m",
+    '"<message>"',
+  ]);
   const gitBegin = renderLockpickCommand(config, [
     "git",
     "begin",
@@ -180,6 +188,8 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     "git",
     "end",
     "<git_lock_id>",
+    "--git-token",
+    "<git_token>",
     "--release-lock",
     "<lock_id>",
   ]);
@@ -192,10 +202,15 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     "- Acquire exact file locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
     `- Use \`${acquire}\` and keep requested paths narrow. Prefer exact paths over globs.`,
     `- Expand before touching newly needed files with \`${expand}\`; do not edit outside the held lock set.`,
-    `- Refresh before edit batches, after long tests, and before staging with \`${refresh}\`.`,
-    `- Use \`${gitBegin}\` before staging or committing because the Git index is shared.`,
-    "- Stage only paths covered by your held locks and verify the staged diff before committing.",
-    `- Release promptly after commit or handoff with \`${gitEnd}\` or \`lockpick release <lock_id>\`.`,
+    `- Refresh before edit batches and after long tests with \`${refresh}\`.`,
+    "- **To commit, prefer the one-command path:**",
+    `  \`${commit}\`. It locks the paths and the shared Git index, stages and commits ONLY those paths`,
+    "  (pathspec-scoped), fences the index against a reclaimed lease, and releases — no lock ids to thread.",
+    "  Add `--keep` to retain the file lock for follow-up edits.",
+    `- Only if you must drive \`git\` yourself: \`${gitBegin}\` (it prints the git lock id then a fence token),`,
+    "  stage only paths covered by your held locks, `git commit`, then",
+    `  \`${gitEnd}\`. The \`--git-token\` aborts the release if the index lease was reclaimed mid-commit.`,
+    "- Release promptly after commit or handoff with `lockpick release <lock_id>` (or `lockpick release --mine`).",
     LOCKPICK_AGENTS_END,
   ].join("\n");
 }

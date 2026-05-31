@@ -237,6 +237,10 @@ test("generated AGENTS snippet renders lockpick command usage", () => {
   const snippet = lockpickAgentsSnippet(config);
   expect(snippet).toContain("lockpick acquire");
   expect(snippet).toContain("lockpick refresh");
+  // `lockpick commit` is the preferred, explained commit path; git begin/end stays as the alternative.
+  expect(snippet).toContain("lockpick commit");
+  expect(snippet).toContain("prefer the one-command path");
+  expect(snippet).toContain("lockpick git begin");
 });
 
 async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {

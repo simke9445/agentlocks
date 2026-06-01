@@ -32,6 +32,7 @@ import {
   LOCK_SCHEMA_VERSION,
   LockCommandError,
   MAX_LOCK_TTL_MS,
+  REGISTRY_MUTEX_LIVE_CEILING_MS,
   REGISTRY_MUTEX_STALE_MS,
 } from "./types";
 
@@ -49,6 +50,8 @@ export interface FileLockRegistryOptions {
   unknownLivenessGraceMs?: number;
   autoReclaimOnConflict?: boolean;
   keepAliveOnMutation?: boolean;
+  // Mutex contention retry budget (test seam). Defaults: 100 attempts x 25ms = ~2.5s ceiling.
+  mutexRetry?: { attempts?: number; sleepMs?: number };
 }
 
 export interface LockResourceRequest {
@@ -92,6 +95,8 @@ export class FileLockRegistry {
   private readonly unknownLivenessGraceMs: number;
   private readonly autoReclaimOnConflict: boolean;
   private readonly keepAliveOnMutation: boolean;
+  private readonly mutexAttempts: number;
+  private readonly mutexSleepMs: number;
 
   constructor(options: FileLockRegistryOptions = {}) {
     this.cwd = path.resolve(options.cwd ?? process.cwd());
@@ -113,6 +118,8 @@ export class FileLockRegistry {
       options.unknownLivenessGraceMs ?? DEFAULT_UNKNOWN_LIVENESS_GRACE_MS;
     this.autoReclaimOnConflict = options.autoReclaimOnConflict ?? false;
     this.keepAliveOnMutation = options.keepAliveOnMutation ?? true;
+    this.mutexAttempts = options.mutexRetry?.attempts ?? 100;
+    this.mutexSleepMs = options.mutexRetry?.sleepMs ?? 25;
   }
 
   identify(agentId?: string | null): LockOperationResult {
@@ -780,14 +787,17 @@ export class FileLockRegistry {
 
   private async withMutex<T>(operation: () => Promise<T>): Promise<T> {
     await ensureDir(this.lockRoot);
-    for (let attempt = 0; attempt < 100; attempt++) {
+    const ownerPath = path.join(this.mutexDir, "owner.json");
+    for (let attempt = 0; attempt < this.mutexAttempts; attempt++) {
       try {
         await fs.mkdir(this.mutexDir);
+        const nonce = randomBytes(12).toString("hex");
         await fs.writeFile(
-          path.join(this.mutexDir, "owner.json"),
+          ownerPath,
           `${JSON.stringify({
             hostname: os.hostname(),
             pid: process.pid,
+            nonce,
             createdAt: iso(this.now()),
           })}\n`,
           "utf8",
@@ -795,12 +805,20 @@ export class FileLockRegistry {
         try {
           return await operation();
         } finally {
-          await fs.rm(this.mutexDir, { recursive: true, force: true });
+          // Only delete the mutex if WE still own it. If our hold was reclaimed mid-operation
+          // (we stalled past the stale ceiling) and a successor re-acquired, owner.json now
+          // carries a different nonce — deleting it would evict the live successor and cascade
+          // into further double-entries. A missing/unreadable owner.json is our own (or already
+          // gone), so the force-rm there is a harmless no-op.
+          const owner = await readMutexOwner(ownerPath);
+          if (!owner || owner.nonce === nonce) {
+            await fs.rm(this.mutexDir, { recursive: true, force: true });
+          }
         }
       } catch (error) {
         if (!isAlreadyExistsError(error)) throw error;
         if (await this.reclaimStaleMutex()) continue;
-        await sleep(25);
+        await sleep(this.mutexSleepMs);
       }
     }
     throw new LockCommandError("Timed out waiting for lock registry mutex.", 2);
@@ -813,7 +831,21 @@ export class FileLockRegistry {
     } catch {
       return true;
     }
-    if (this.now().getTime() - stat.mtimeMs <= REGISTRY_MUTEX_STALE_MS) return false;
+    const ageMs = this.now().getTime() - stat.mtimeMs;
+    if (ageMs <= REGISTRY_MUTEX_STALE_MS) return false;
+    // Stale by mtime — but refuse to evict a holder that is PROVABLY live (recorded on this host
+    // with a still-running pid), up to a ceiling that bounds pid-reuse and an indefinitely-wedged
+    // holder. owner.json is the evidence the prior design wrote but never consulted, which let a
+    // merely-slow live holder be barged into the critical section (a double-acquire hazard).
+    const owner = await readMutexOwner(path.join(this.mutexDir, "owner.json"));
+    if (
+      owner &&
+      owner.hostname === os.hostname() &&
+      ageMs <= REGISTRY_MUTEX_LIVE_CEILING_MS &&
+      isProcessAlive(owner.pid)
+    ) {
+      return false;
+    }
     await fs.rm(this.mutexDir, { recursive: true, force: true });
     return true;
   }
@@ -941,4 +973,31 @@ export function gitIndexToken(generation: number | undefined): string {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface MutexOwnerRecord {
+  hostname?: string;
+  pid?: number;
+  nonce?: string;
+  createdAt?: string;
+}
+
+async function readMutexOwner(ownerPath: string): Promise<MutexOwnerRecord | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(ownerPath, "utf8")) as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as MutexOwnerRecord) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number | undefined): boolean {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // ESRCH = no such process (dead). EPERM = process exists but owned by another user (alive).
+    return (error as { code?: string }).code === "EPERM";
+  }
 }

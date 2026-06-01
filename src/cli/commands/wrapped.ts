@@ -171,6 +171,19 @@ async function runCommit(
         });
       }
     }
+    // Final fence check: a sub-interval commit (TTL < the keep-alive interval) can complete
+    // before the keep-alive timer ever fires, so re-verify once after the commit lands —
+    // otherwise a commit that raced a reclaim/re-mint could exit 0 despite losing the lease.
+    if (gitToken && !fenceLost && gitCode === 0) {
+      const post = await verifyGitFence(
+        gitLockId,
+        gitToken,
+        command.agentId,
+        { refresh: false },
+        cwd,
+      );
+      if (post.exitCode !== 0) fenceLost = post.stderr ?? "@git/index fence lost";
+    }
   } finally {
     if (timer) clearInterval(timer);
     try {

@@ -8,6 +8,10 @@ export const DEFAULT_UNKNOWN_LIVENESS_GRACE_MS = 90_000;
 // Maximum age of a Claude Code session transcript still treated as "live".
 export const CLAUDECODE_LIVENESS_STALE_MS = 300_000;
 export const REGISTRY_MUTEX_STALE_MS = 30_000;
+// A registry mutex stale by mtime is reclaimed — UNLESS owner.json records a live process on
+// this host, in which case it is protected up to this ceiling (which bounds pid-reuse and an
+// indefinitely-wedged holder). Far above any real registry operation (all local-FS, ms-scale).
+export const REGISTRY_MUTEX_LIVE_CEILING_MS = 600_000;
 export const GIT_INDEX_RESOURCE = "@git/index";
 
 export type LockResourceKind = "path" | "glob" | "git";

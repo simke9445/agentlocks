@@ -158,7 +158,12 @@ export async function probeCodexSessionLiveness(
   if (ageMs <= MAX_LOCK_TTL_MS) {
     return { status: "live", evidence: `session updated ${Math.max(0, ageMs)}ms ago` };
   }
-  return { status: "dead", evidence: `session last updated ${Math.max(0, ageMs)}ms ago` };
+  // A present-but-stale index entry stays "unknown" (matching the Claude probe's
+  // stale-but-present rule) so it falls through to the unknown-liveness grace instead of
+  // false-reclaiming a live owner — Codex does not refresh session_index updated_at per turn,
+  // so a working agent's entry routinely ages past the threshold. Only a confirmed-MISSING
+  // entry (handled above) is treated as dead.
+  return { status: "unknown", evidence: `session last updated ${Math.max(0, ageMs)}ms ago` };
 }
 
 export interface ClaudeCodeProbeOptions {

@@ -10,7 +10,8 @@
       "!out",
       "!tmp",
       "!scratch",
-      "!notes"
+      "!notes",
+      "!npm/*/bin"
     ]
   },
   "formatter": {

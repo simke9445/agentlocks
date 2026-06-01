@@ -1,0 +1,19 @@
+{
+  "name": "agentlocks-darwin-x64",
+  "version": "0.5.1",
+  "description": "Prebuilt agentlocks binary for macOS (Intel).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simke9445/agentlocks.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ]
+}

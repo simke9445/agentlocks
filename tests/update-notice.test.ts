@@ -49,6 +49,34 @@ test("prints update notice when forced and registry has a newer version", async 
   }
 });
 
+test("queries the unscoped agentlocks registry URL, not a scoped one", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-update-notice-"));
+  try {
+    let requestedUrl = "";
+    await maybePrintUpdateNotice({
+      cachePath: path.join(workspace, "cache.json"),
+      currentVersion: "0.1.1",
+      env: { AGENTLOCKS_UPDATE_CHECK: "1" },
+      fetchImpl: async (url) => {
+        requestedUrl = url;
+        return { ok: true, json: async () => ({ version: "0.1.1" }) };
+      },
+      now: new Date("2026-05-27T10:00:00Z"),
+      stderr: captureStderr(true),
+    });
+
+    // Regression guard for the 0.5.0 rename, which find-replaced lockpick -> agentlocks
+    // but kept the scope prefix, leaving this pointed at the nonexistent
+    // @simke9445/agentlocks so every check 404'd and the notice never fired. The
+    // published package is the unscoped `agentlocks`.
+    expect(requestedUrl).toBe("https://registry.npmjs.org/agentlocks/latest");
+    expect(requestedUrl).not.toContain("@simke9445");
+    expect(requestedUrl).not.toContain("%2f");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("skips update checks for machine-readable commands", async () => {
   let called = false;
   const stderr = captureStderr(true);

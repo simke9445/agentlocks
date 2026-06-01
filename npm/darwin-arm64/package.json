@@ -1,0 +1,19 @@
+{
+  "name": "agentlocks-darwin-arm64",
+  "version": "0.5.1",
+  "description": "Prebuilt agentlocks binary for macOS (Apple Silicon).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simke9445/agentlocks.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ]
+}

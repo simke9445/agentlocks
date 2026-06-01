@@ -1,0 +1,22 @@
+{
+  "name": "agentlocks-linux-x64",
+  "version": "0.5.1",
+  "description": "Prebuilt agentlocks binary for Linux (x64, glibc).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simke9445/agentlocks.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "bin/"
+  ]
+}

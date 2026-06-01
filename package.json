@@ -34,7 +34,7 @@
     "access": "public"
   },
   "bin": {
-    "agentlocks": "bin/agentlocks.ts"
+    "agentlocks": "bin/agentlocks.mjs"
   },
   "files": [
     "assets/",
@@ -50,6 +50,8 @@
   },
   "scripts": {
     "build": "bun run typecheck",
+    "build:binaries": "bun scripts/build-binaries.mjs",
+    "smoke": "bun scripts/smoke-install.mjs",
     "agentlocks": "bun run src/index.ts",
     "start": "bun run src/index.ts",
     "doctor": "bun run src/index.ts doctor",
@@ -68,6 +70,6 @@
     "typescript": "6.0.3"
   },
   "engines": {
-    "bun": ">=1.2.0"
+    "node": ">=18"
   }
 }

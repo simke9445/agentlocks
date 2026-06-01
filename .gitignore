@@ -10,3 +10,4 @@ tmp/
 scratch/
 notes/
 .playwright-mcp/
+npm/*/bin/

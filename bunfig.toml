@@ -1,0 +1,4 @@
+[test]
+# Preload scrubs ambient harness identity env vars so the suite is hermetic when
+# run inside a real coding harness (Claude Code / Codex). See tests/test-setup.ts.
+preload = ["./tests/test-setup.ts"]

@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/agentlocks"><img src="https://img.shields.io/npm/v/agentlocks?color=blue&label=npm" alt="npm version"></a>
+  <a href="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml"><img src="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black" alt="Bun >= 1.2">
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6" alt="TypeScript">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">

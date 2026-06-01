@@ -15,7 +15,7 @@ import {
 import type { GitVerifyReport, LockOperationResult } from "../src/locks/types";
 
 async function withWorkspace<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lockpick-040-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agentlocks-040-"));
   try {
     return await run(dir);
   } finally {
@@ -24,7 +24,7 @@ async function withWorkspace<T>(run: (dir: string) => Promise<T>): Promise<T> {
 }
 
 function registry(cwd: string, env: NodeJS.ProcessEnv = {}): FileLockRegistry {
-  return new FileLockRegistry({ cwd, env, fallbackOwnerPrefix: "lockpick" });
+  return new FileLockRegistry({ cwd, env, fallbackOwnerPrefix: "agentlocks" });
 }
 
 function git(cwd: string, ...args: string[]): void {
@@ -38,8 +38,8 @@ function initRepo(cwd: string): void {
   git(cwd, "config", "user.name", "t");
 }
 
-const AGENT_A = { LOCKPICK_AGENT_ID: "agent-A" };
-const AGENT_B = { LOCKPICK_AGENT_ID: "agent-B" };
+const AGENT_A = { AGENTLOCKS_AGENT_ID: "agent-A" };
+const AGENT_B = { AGENTLOCKS_AGENT_ID: "agent-B" };
 
 // ─────────────────────────────────────────── F1 ───────────────────────────────────────────
 
@@ -112,7 +112,7 @@ test("F2 isReliableOwnerIdentity excludes fallback and bare Claude session", () 
   expect(session.harnessScope).toBe("session");
   expect(isReliableOwnerIdentity(session)).toBe(false);
 
-  const explicit = identifyLockOwner({ cwd: "/tmp", env: { LOCKPICK_AGENT_ID: "alice" } });
+  const explicit = identifyLockOwner({ cwd: "/tmp", env: { AGENTLOCKS_AGENT_ID: "alice" } });
   expect(isReliableOwnerIdentity(explicit)).toBe(true);
 });
 
@@ -278,7 +278,7 @@ test("F3 --pathspec resolves relative to the invocation cwd, not the repo root",
   });
 });
 
-test("F3 git verify never writes .lockpick/ and always exits 0", async () => {
+test("F3 git verify never writes .agentlocks/ and always exits 0", async () => {
   await withWorkspace(async (dir) => {
     initRepo(dir);
     await writeFile(path.join(dir, "b.ts"), "hi\n");
@@ -291,7 +291,9 @@ test("F3 git verify never writes .lockpick/ and always exits 0", async () => {
     });
     expect(result.exitCode).toBe(0);
     // No active dir was created by the read-only path.
-    expect(spawnSync("test", ["-d", path.join(dir, ".lockpick/locks/active")]).status).not.toBe(0);
+    expect(spawnSync("test", ["-d", path.join(dir, ".agentlocks/locks/active")]).status).not.toBe(
+      0,
+    );
   });
 });
 

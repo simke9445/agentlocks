@@ -1,4 +1,8 @@
-import { loadLockpickConfig, type ResolvedLockpickConfig, renderLockpickCommand } from "../config";
+import {
+  loadAgentlocksConfig,
+  type ResolvedAgentlocksConfig,
+  renderAgentlocksCommand,
+} from "../config";
 import { runGitVerify } from "./git-verify";
 import { FileLockRegistry, type FileLockRegistryOptions } from "./registry";
 import {
@@ -29,16 +33,16 @@ export interface LockCommandOutput {
 
 export interface ExecuteLockCommandOptions {
   cwd?: string;
-  config?: ResolvedLockpickConfig;
+  config?: ResolvedAgentlocksConfig;
   registryOptions?: Partial<FileLockRegistryOptions>;
 }
 
 async function buildRegistry(
   cwdOrOptions: string | ExecuteLockCommandOptions,
-): Promise<{ registry: FileLockRegistry; config: ResolvedLockpickConfig }> {
+): Promise<{ registry: FileLockRegistry; config: ResolvedAgentlocksConfig }> {
   const options = typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
   const config =
-    options.config ?? (await loadLockpickConfig({ cwd: options.cwd ?? process.cwd() }));
+    options.config ?? (await loadAgentlocksConfig({ cwd: options.cwd ?? process.cwd() }));
   const registry = new FileLockRegistry({
     cwd: config.root,
     lockRoot: config.lockRoot,
@@ -213,7 +217,7 @@ export async function executeLockCommand(
 function renderCommandResults(
   command: LockCommand,
   results: LockOperationResult[],
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
 ): { exitCode: number; text: string; json: unknown; stderr?: string } {
   const exitCode = results.find((result) => result.exitCode !== 0)?.exitCode ?? 0;
   if (command.name === "git-begin" && exitCode === 0) {
@@ -250,7 +254,7 @@ function renderCommandResults(
 function renderGitBegin(
   command: LockCommand,
   results: LockOperationResult[],
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   exitCode: number,
 ): { exitCode: number; text: string; json: unknown; stderr?: string } {
   const acquired = results.find((result) => result.kind === "acquired");
@@ -355,7 +359,7 @@ function gitVerifySummary(report: GitVerifyReport): string {
 function renderCommandText(
   command: LockCommand,
   results: LockOperationResult[],
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   exitCode: number,
 ): { text: string; stderr?: string } {
   if (command.idOnly && exitCode === 0) {
@@ -468,7 +472,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
 function renderResults(
   results: LockOperationResult[],
   verbose: boolean,
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
 ): string {
   return results.map((result) => renderLockResult(result, verbose, config)).join("\n");
 }
@@ -507,7 +511,7 @@ function requireLockIds(lockIds: string[], action: string): string[] {
 export function renderLockResult(
   result: LockOperationResult,
   verbose = false,
-  config?: ResolvedLockpickConfig,
+  config?: ResolvedAgentlocksConfig,
 ): string {
   switch (result.kind) {
     case "acquired":
@@ -565,7 +569,7 @@ function renderMineSummary(verb: string, locks: { lockId: string }[]): string {
 
 function conflictRender(
   result: LockOperationResult,
-  config: ResolvedLockpickConfig | undefined,
+  config: ResolvedAgentlocksConfig | undefined,
 ): { data: string[]; next: string } {
   const conflicts = result.conflicts ?? [];
   const next = conflictNextLine(result.suggestedAction, config);
@@ -613,8 +617,8 @@ function conflictLeaseText(lock: LockConflict["lock"]): string {
     : "lease expiry unknown";
 }
 
-function conflictNextLine(action: string, config: ResolvedLockpickConfig | undefined): string {
-  const pruneCommand = config ? renderLockpickCommand(config, ["prune"]) : "lockpick prune";
+function conflictNextLine(action: string, config: ResolvedAgentlocksConfig | undefined): string {
+  const pruneCommand = config ? renderAgentlocksCommand(config, ["prune"]) : "agentlocks prune";
   const next =
     action === "prune_then_retry"
       ? `${pruneCommand}, then retry`

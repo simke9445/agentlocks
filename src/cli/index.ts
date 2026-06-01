@@ -1,4 +1,4 @@
-import { lockpickCapabilities, renderCapabilitiesText } from "./capabilities";
+import { agentlocksCapabilities, renderCapabilitiesText } from "./capabilities";
 import { runInitCommand } from "./commands/init";
 import { lockExitCode, runLockCommand } from "./commands/lock";
 import { runWrappedCommand } from "./commands/wrapped";
@@ -27,7 +27,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         return;
       case "capabilities":
         if (parsed.command.options.json) {
-          console.log(JSON.stringify(lockpickCapabilities()));
+          console.log(JSON.stringify(agentlocksCapabilities()));
         } else {
           console.log(renderCapabilitiesText());
         }
@@ -51,7 +51,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (argv.includes("--json")) {
       console.log(JSON.stringify(cliErrorPayload(error, message, suggestion)));
     } else {
-      console.error(`lockpick error: ${renderCliErrorMessage(message, suggestion)}`);
+      console.error(`agentlocks error: ${renderCliErrorMessage(message, suggestion)}`);
     }
     process.exitCode = exitCode;
   } finally {
@@ -163,7 +163,7 @@ function closestKnownCommand(value: string, argv: string[]): string | null {
 }
 
 function knownFlags(): string[] {
-  return [...new Set(lockpickCapabilities().commands.flatMap((command) => command.flags))].sort(
+  return [...new Set(agentlocksCapabilities().commands.flatMap((command) => command.flags))].sort(
     (left, right) => left.localeCompare(right),
   );
 }
@@ -171,7 +171,7 @@ function knownFlags(): string[] {
 function knownCommandsForValue(value: string, argv: string[]): string[] {
   const valueIndex = argv.indexOf(value);
   const prefix = valueIndex > 0 ? argv.slice(0, valueIndex) : [];
-  const commandParts = lockpickCapabilities().commands.map((command) => command.name.split(" "));
+  const commandParts = agentlocksCapabilities().commands.map((command) => command.name.split(" "));
   const prefixMatches = commandParts
     .filter(
       (parts) =>
@@ -195,7 +195,7 @@ function renderCorrectedCommand(argv: string[], unknown: string, replacement: st
     if (value === replacement && corrected.includes(replacement)) continue;
     corrected.push(value);
   }
-  return ["lockpick", ...corrected].map(shellQuote).join(" ");
+  return ["agentlocks", ...corrected].map(shellQuote).join(" ");
 }
 
 function shellQuote(value: string): string {

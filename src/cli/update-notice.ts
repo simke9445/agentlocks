@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import packageJson from "../../package.json";
 
-const PACKAGE_NAME = "@simke9445/lockpick";
-const REGISTRY_URL = "https://registry.npmjs.org/@simke9445%2flockpick/latest";
+const PACKAGE_NAME = "agentlocks";
+const REGISTRY_URL = "https://registry.npmjs.org/@simke9445%2fagentlocks/latest";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 750;
 
@@ -63,7 +63,7 @@ export async function maybePrintUpdateNotice(options: UpdateNoticeOptions = {}):
 
 export function renderUpdateNotice(currentVersion: string, latestVersion: string): string {
   return [
-    `New Lockpick version available: ${currentVersion} -> ${latestVersion}`,
+    `New Agentlocks version available: ${currentVersion} -> ${latestVersion}`,
     `Update with: bun update -g --latest ${PACKAGE_NAME}`,
     `npm users: npm install -g ${PACKAGE_NAME}@latest`,
   ].join("\n");
@@ -98,11 +98,11 @@ function shouldCheckForUpdates(options: {
   stderr: Pick<NodeJS.WriteStream, "isTTY" | "write">;
 }): boolean {
   // F3: `git verify` runs inside commit hooks — never touch the network, in ANY mode
-  // (this must precede the forcing LOCKPICK_UPDATE_CHECK below).
+  // (this must precede the forcing AGENTLOCKS_UPDATE_CHECK below).
   if (isGitVerify(options.argv)) return false;
-  if (truthyEnv(options.env.LOCKPICK_DISABLE_UPDATE_CHECK)) return false;
+  if (truthyEnv(options.env.AGENTLOCKS_DISABLE_UPDATE_CHECK)) return false;
   if (truthyEnv(options.env.NO_UPDATE_NOTIFIER)) return false;
-  if (truthyEnv(options.env.LOCKPICK_UPDATE_CHECK)) return true;
+  if (truthyEnv(options.env.AGENTLOCKS_UPDATE_CHECK)) return true;
   if (truthyEnv(options.env.CI)) return false;
   if (!options.stderr.isTTY) return false;
   return !options.argv.includes("--json") && !options.argv.includes("--id-only");
@@ -118,7 +118,7 @@ async function fetchLatestVersion(options: {
     const response = await options.fetchImpl(REGISTRY_URL, {
       headers: {
         accept: "application/json",
-        "user-agent": `lockpick/${packageJson.version}`,
+        "user-agent": `agentlocks/${packageJson.version}`,
       },
       signal: controller.signal,
     });
@@ -169,7 +169,7 @@ function writeNoticeIfNewer(
 
 function defaultUpdateCachePath(env: NodeJS.ProcessEnv): string {
   const cacheRoot = env.XDG_CACHE_HOME?.trim() || path.join(os.homedir(), ".cache");
-  return path.join(cacheRoot, "lockpick", "update-check.json");
+  return path.join(cacheRoot, "agentlocks", "update-check.json");
 }
 
 function parseSemver(version: string): {

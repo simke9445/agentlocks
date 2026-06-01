@@ -22,7 +22,7 @@ function claudeOwner(sessionId: string, cwd: string): LockOwner {
 }
 
 async function withProjects(fn: (projectsDir: string) => Promise<void>): Promise<void> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lockpick-claude-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agentlocks-claude-"));
   try {
     await fn(dir);
   } finally {
@@ -73,7 +73,7 @@ test("claude-code probe scans project dirs and reports unknown when the home is 
   });
 
   const missingHome = createClaudeCodeSessionProbe({
-    projectsDir: path.join(os.tmpdir(), "lockpick-claude-absent-xyz"),
+    projectsDir: path.join(os.tmpdir(), "agentlocks-claude-absent-xyz"),
     env: {},
   });
   const owner = claudeOwner("bbbb1111-2222-3333-4444-555555555555", "/Users/dev/project");
@@ -100,12 +100,12 @@ test("harness probe dispatches claude transcript and falls through for generic o
     expect((await probe(claudeOwner(sessionId, cwd), new Date(mtime + 1_000))).status).toBe("live");
 
     const generic: LockOwner = {
-      agentId: "lockpick:host:1",
+      agentId: "agentlocks:host:1",
       hostname: "host",
       pid: 1,
       cwd,
       source: "fallback",
-      harness: "lockpick",
+      harness: "agentlocks",
       harnessScope: "fallback",
     };
     expect((await probe(generic, new Date(mtime + 1_000))).status).toBe("unknown");

@@ -5,12 +5,12 @@ import { pathExists } from "../io";
 import type { LockOwner, LockOwnerHarness, LockOwnerHarnessScope, SessionLiveness } from "./types";
 import { CLAUDECODE_LIVENESS_STALE_MS, MAX_LOCK_TTL_MS } from "./types";
 
-export const CLAUDE_PROJECTS_DIR_ENV_KEY = "LOCKPICK_CLAUDE_PROJECTS_DIR";
+export const CLAUDE_PROJECTS_DIR_ENV_KEY = "AGENTLOCKS_CLAUDE_PROJECTS_DIR";
 
-export const DEFAULT_AGENT_ENV_KEYS = ["LOCKPICK_AGENT_ID"] as const;
+export const DEFAULT_AGENT_ENV_KEYS = ["AGENTLOCKS_AGENT_ID"] as const;
 export const DEFAULT_OWNER_HARNESSES = ["codex", "claude-code"] as const;
 export type OwnerHarness = (typeof DEFAULT_OWNER_HARNESSES)[number];
-export const LOCKPICK_HARNESS_AGENT_ENV_KEY = "LOCKPICK_HARNESS_AGENT_ID";
+export const AGENTLOCKS_HARNESS_AGENT_ENV_KEY = "AGENTLOCKS_HARNESS_AGENT_ID";
 export const CODEX_OWNER_ENV_KEY = "CODEX_THREAD_ID";
 export const CLAUDE_CODE_SESSION_ENV_KEY = "CLAUDE_CODE_SESSION_ID";
 
@@ -43,15 +43,15 @@ export function detectHarnessAgentId(
   env: NodeJS.ProcessEnv = process.env,
   harnesses: readonly OwnerHarness[] = DEFAULT_OWNER_HARNESSES,
 ): Pick<LockOwner, "agentId" | "source" | "harness" | "harnessScope" | "rawSessionId"> | null {
-  const lockpickHarnessAgentId = env[LOCKPICK_HARNESS_AGENT_ENV_KEY]?.trim();
-  if (lockpickHarnessAgentId) {
-    const parsed = parseHarnessOwnerAgentId(lockpickHarnessAgentId);
+  const agentlocksHarnessAgentId = env[AGENTLOCKS_HARNESS_AGENT_ENV_KEY]?.trim();
+  if (agentlocksHarnessAgentId) {
+    const parsed = parseHarnessOwnerAgentId(agentlocksHarnessAgentId);
     const detected: Pick<
       LockOwner,
       "agentId" | "source" | "harness" | "harnessScope" | "rawSessionId"
     > = {
-      agentId: lockpickHarnessAgentId,
-      source: `harness:lockpick:${LOCKPICK_HARNESS_AGENT_ENV_KEY}`,
+      agentId: agentlocksHarnessAgentId,
+      source: `harness:agentlocks:${AGENTLOCKS_HARNESS_AGENT_ENV_KEY}`,
     };
     if (parsed.harness) detected.harness = parsed.harness;
     if (parsed.harnessScope) detected.harnessScope = parsed.harnessScope;
@@ -99,7 +99,7 @@ export function identifyLockOwner(options: IdentifyOwnerOptions): LockOwner {
     : explicit
       ? { agentId: explicit, source: "explicit" }
       : detectAgentId(env, envKeys);
-  const fallbackAgentId = fallbackOwnerId(options.fallbackPrefix ?? "lockpick");
+  const fallbackAgentId = fallbackOwnerId(options.fallbackPrefix ?? "agentlocks");
   const resolved = harnessDetected ?? detected ?? { agentId: fallbackAgentId, source: "fallback" };
   const parsed = parseHarnessOwnerAgentId(resolved.agentId);
   const owner: LockOwner = {
@@ -170,7 +170,7 @@ export interface ClaudeCodeProbeOptions {
 /**
  * Liveness from the Claude Code session transcript the harness appends to on
  * every turn — fresh when the agent is alive and working, independent of how
- * often the agent calls lockpick. Missing transcript => the session is gone
+ * often the agent calls agentlocks. Missing transcript => the session is gone
  * (dead); a stale-but-present transcript stays "unknown" (it may be a long
  * tool call) so it falls through to the short unknown-liveness grace instead of
  * false-reclaiming a live owner mid-work.
@@ -305,7 +305,7 @@ export function lockOwnerSource(owner: LockOwner): string | null {
  * (F2 `--mine` mutates, F3 `git verify` `owned_by_caller`)?
  *
  * Defined as an EXCLUSION so stable explicit/env ids stay reliable (plain `--agent-id`
- * and `LOCKPICK_AGENT_ID` are kept for unsupported-harness recovery and must NOT be
+ * and `AGENTLOCKS_AGENT_ID` are kept for unsupported-harness recovery and must NOT be
  * rejected). Unreliable iff:
  *  - `source === "fallback"` (a fresh per-process id — matches nothing held under a real id), or
  *  - the resolved owner is a bare Claude `harnessScope === "session"` id (the unscoped
@@ -363,7 +363,9 @@ function parseHarnessOwnerAgentId(agentId: string): {
     };
   }
 
-  return agentId.startsWith("lockpick:") ? { harness: "lockpick", harnessScope: "fallback" } : {};
+  return agentId.startsWith("agentlocks:")
+    ? { harness: "agentlocks", harnessScope: "fallback" }
+    : {};
 }
 
 function codexHome(): string {

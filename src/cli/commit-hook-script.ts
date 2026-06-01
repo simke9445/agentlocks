@@ -3,11 +3,11 @@
 // These build the *source text* of standalone Node ESM hook scripts that `init
 // --commit-hook` writes next to the existing harness hooks. The scripts are
 // advisory-only: they detect an agent's `git commit` tool-call, run
-// `lockpick git verify --json`, and surface uncovered/foreign-covered paths.
+// `agentlocks git verify --json`, and surface uncovered/foreign-covered paths.
 // They NEVER deny/block and fail OPEN on any error (GIT_HOOK_SPEC §4.1).
 //
 // The Claude script is the *merge* of the existing agent-id injection hook
-// (`lockpick-agent-env.mjs`) and the verify branch — one node spawn per Bash
+// (`agentlocks-agent-env.mjs`) and the verify branch — one node spawn per Bash
 // (§4.2). The Codex script is a standalone verify-only twin (§4.3). Both embed
 // the same shared verify logic (`SHARED_VERIFY_LOGIC`).
 
@@ -15,21 +15,21 @@
  * Shared JS source (emitted verbatim into both generated `.mjs` scripts).
  *
  * Provides, in the emitted script's scope:
- *  - `lockpickIsGitCommit(command)` — fast, ~free `git commit` detection that
+ *  - `agentlocksIsGitCommit(command)` — fast, ~free `git commit` detection that
  *    tolerates `git -c …`/`env X=1 …`/`cd sub && …` prefixes, does NOT match
- *    `lockpick commit` or `git commit` inside a quoted string (§4.1 step 3).
- *  - `lockpickParseCommitForm(command, toolCwd)` — the commit FORM → verify
+ *    `agentlocks commit` or `git commit` inside a quoted string (§4.1 step 3).
+ *  - `agentlocksParseCommitForm(command, toolCwd)` — the commit FORM → verify
  *    args (`--include-unstaged` / `--pathspec … --pathspec-mode only|include`)
  *    plus the effective cwd for `cd <dir>`/`git -C <dir>` (§3.5a, §4 step 3b/4).
- *  - `lockpickRunVerify(form, harnessAgentId)` — spawns `lockpick git verify
+ *  - `agentlocksRunVerify(form, harnessAgentId)` — spawns `agentlocks git verify
  *    --json` in the effective cwd; returns parsed JSON or null (fail-open).
- *  - `lockpickBuildAdvice(result, note)` — advice string for uncovered +
+ *  - `agentlocksBuildAdvice(result, note)` — advice string for uncovered +
  *    (reliable-identity) foreign-covered paths, or null when silent (§4 step 5).
  *
  * The text below is JavaScript that lands inside the generated file; backticks
  * and `${` are escaped because this is itself a TS template literal.
  */
-const SHARED_VERIFY_LOGIC = `function lockpickTokenizeSegments(command) {
+const SHARED_VERIFY_LOGIC = `function agentlocksTokenizeSegments(command) {
   const segments = [];
   let tokens = [];
   let current = "";
@@ -76,7 +76,7 @@ const SHARED_VERIFY_LOGIC = `function lockpickTokenizeSegments(command) {
   return segments;
 }
 
-function lockpickIsTopLevelValueOpt(name) {
+function agentlocksIsTopLevelValueOpt(name) {
   return (
     name === "-c" ||
     name === "-C" ||
@@ -88,14 +88,14 @@ function lockpickIsTopLevelValueOpt(name) {
   );
 }
 
-function lockpickGitWord(token) {
+function agentlocksGitWord(token) {
   if (!token || token.hadVar) return false;
   const text = token.text;
   if (text === "git") return true;
   return /(^|\\/)git$/.test(text) && !text.includes(" ");
 }
 
-function lockpickStripEnvPrefix(tokens) {
+function agentlocksStripEnvPrefix(tokens) {
   let i = 0;
   if (tokens[i] && tokens[i].text === "env" && !tokens[i].hadVar) i++;
   while (tokens[i] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i].text)) i++;
@@ -103,7 +103,7 @@ function lockpickStripEnvPrefix(tokens) {
 }
 
 // Returns { cwdDir, dirToken } for a leading \`cd <dir>\` segment, else null.
-function lockpickCdDir(tokens) {
+function agentlocksCdDir(tokens) {
   if (!tokens.length) return null;
   if (tokens[0].text !== "cd" || tokens[0].hadVar) return null;
   const dir = tokens[1];
@@ -111,10 +111,10 @@ function lockpickCdDir(tokens) {
   return { dirToken: dir };
 }
 
-function lockpickGitCommitIndex(tokens) {
+function agentlocksGitCommitIndex(tokens) {
   // Index of the \`commit\` token in a git-commit segment, or -1.
-  const start = lockpickStripEnvPrefix(tokens);
-  if (!lockpickGitWord(tokens[start])) return { commit: -1, cIndex: -1 };
+  const start = agentlocksStripEnvPrefix(tokens);
+  if (!agentlocksGitWord(tokens[start])) return { commit: -1, cIndex: -1 };
   let i = start + 1;
   let cIndex = -1;
   while (i < tokens.length) {
@@ -128,7 +128,7 @@ function lockpickGitCommitIndex(tokens) {
         if (i + 1 < tokens.length) { if (name === "-C") cIndex = i + 1; i += 2; continue; }
       }
       if (name === "-C" && eq !== -1) { cIndex = i; }
-      if (lockpickIsTopLevelValueOpt(name) && eq === -1) { i += 2; continue; }
+      if (agentlocksIsTopLevelValueOpt(name) && eq === -1) { i += 2; continue; }
       i += 1;
       continue;
     }
@@ -139,16 +139,16 @@ function lockpickGitCommitIndex(tokens) {
   return { commit: -1, cIndex };
 }
 
-function lockpickIsGitCommit(command) {
+function agentlocksIsGitCommit(command) {
   if (typeof command !== "string" || command.indexOf("commit") === -1) return false;
-  const segments = lockpickTokenizeSegments(command);
+  const segments = agentlocksTokenizeSegments(command);
   for (const tokens of segments) {
-    if (lockpickGitCommitIndex(tokens).commit !== -1) return true;
+    if (agentlocksGitCommitIndex(tokens).commit !== -1) return true;
   }
   return false;
 }
 
-function lockpickIsCommitValueLong(name) {
+function agentlocksIsCommitValueLong(name) {
   return (
     name === "--message" ||
     name === "--author" ||
@@ -166,19 +166,19 @@ function lockpickIsCommitValueLong(name) {
   );
 }
 
-function lockpickParseCommitForm(command, toolCwd) {
-  const segments = lockpickTokenizeSegments(command);
+function agentlocksParseCommitForm(command, toolCwd) {
+  const segments = agentlocksTokenizeSegments(command);
   let commitTokens = null;
   let cIndexToken = null;
   let cdToken = null;
   for (const tokens of segments) {
-    const info = lockpickGitCommitIndex(tokens);
+    const info = agentlocksGitCommitIndex(tokens);
     if (info.commit !== -1) {
       commitTokens = tokens;
       cIndexToken = info.cIndex === -1 ? null : tokens[info.cIndex];
       break;
     }
-    const cd = lockpickCdDir(tokens);
+    const cd = agentlocksCdDir(tokens);
     if (cd) cdToken = cd.dirToken;
   }
   if (!commitTokens) return null;
@@ -187,7 +187,7 @@ function lockpickParseCommitForm(command, toolCwd) {
   let onlyFlag = false;
   let includeFlag = false;
   const pathspecs = [];
-  const info = lockpickGitCommitIndex(commitTokens);
+  const info = agentlocksGitCommitIndex(commitTokens);
   let i = info.commit + 1;
   let afterDoubleDash = false;
   while (i < commitTokens.length) {
@@ -200,7 +200,7 @@ function lockpickParseCommitForm(command, toolCwd) {
       if (name === "--all") all = true;
       else if (name === "--only") onlyFlag = true;
       else if (name === "--include") includeFlag = true;
-      else if (lockpickIsCommitValueLong(name) && eq === -1) { i += 2; continue; }
+      else if (agentlocksIsCommitValueLong(name) && eq === -1) { i += 2; continue; }
       i += 1;
       continue;
     }
@@ -230,16 +230,16 @@ function lockpickParseCommitForm(command, toolCwd) {
   // relative to THAT. Apply cd first, then -C, so a combined prefix is correct.
   let effectiveCwd = toolCwd;
   let unparseableCwd = false;
-  const lockpickPath = require("node:path");
+  const agentlocksPath = require("node:path");
   if (cdToken) {
     if (cdToken.hadVar || !cdToken.text) unparseableCwd = true;
-    else effectiveCwd = lockpickPath.resolve(effectiveCwd, cdToken.text);
+    else effectiveCwd = agentlocksPath.resolve(effectiveCwd, cdToken.text);
   }
   if (cIndexToken) {
     let dirText = cIndexToken.text;
     if (dirText.startsWith("-C=")) dirText = dirText.slice(3);
     if (cIndexToken.hadVar || !dirText) unparseableCwd = true;
-    else effectiveCwd = lockpickPath.resolve(effectiveCwd, dirText);
+    else effectiveCwd = agentlocksPath.resolve(effectiveCwd, dirText);
   }
 
   const hasPathspec = pathspecs.length > 0;
@@ -251,7 +251,7 @@ function lockpickParseCommitForm(command, toolCwd) {
 
   if (unparseableCwd && pathspecMode) {
     note =
-      "lockpick: could not resolve the commit's working directory; skipping pathspec coverage check for " +
+      "agentlocks: could not resolve the commit's working directory; skipping pathspec coverage check for " +
       pathspecValues.join(", ");
     pathspecMode = null;
     pathspecValues = [];
@@ -267,7 +267,7 @@ function lockpickParseCommitForm(command, toolCwd) {
   };
 }
 
-function lockpickRunVerify(form, harnessAgentId) {
+function agentlocksRunVerify(form, harnessAgentId) {
   const { spawnSync } = require("node:child_process");
   const args = ["git", "verify", "--json"];
   if (form.includeUnstaged) args.push("--include-unstaged");
@@ -276,9 +276,9 @@ function lockpickRunVerify(form, harnessAgentId) {
     args.push("--pathspec-mode", form.pathspecMode);
   }
   const env = { ...process.env };
-  if (harnessAgentId) env.LOCKPICK_HARNESS_AGENT_ID = harnessAgentId;
+  if (harnessAgentId) env.AGENTLOCKS_HARNESS_AGENT_ID = harnessAgentId;
   try {
-    const result = spawnSync("lockpick", args, {
+    const result = spawnSync("agentlocks", args, {
       cwd: form.effectiveCwd || process.cwd(),
       env,
       encoding: "utf8",
@@ -293,7 +293,7 @@ function lockpickRunVerify(form, harnessAgentId) {
   }
 }
 
-function lockpickBuildAdvice(result, note) {
+function agentlocksBuildAdvice(result, note) {
   const lines = [];
   if (note) lines.push(note);
   if (result && typeof result === "object") {
@@ -302,9 +302,9 @@ function lockpickBuildAdvice(result, note) {
     if (uncovered.length) {
       const paths = uncovered.map((u) => (u && u.path) || "").filter(Boolean);
       lines.push(
-        "lockpick: staged path(s) not covered by a held lock: " +
+        "agentlocks: staged path(s) not covered by a held lock: " +
           paths.join(", ") +
-          " — acquire a lock or use \\\`lockpick commit\\\`.",
+          " — acquire a lock or use \\\`agentlocks commit\\\`.",
       );
       for (const u of uncovered) {
         if (u && typeof u.hint === "string" && u.hint) lines.push("  hint: " + u.hint);
@@ -313,7 +313,7 @@ function lockpickBuildAdvice(result, note) {
     if (foreign.length) {
       const paths = foreign.map((f) => (f && f.path) || "").filter(Boolean);
       lines.push(
-        "lockpick: staged path(s) covered only by another agent's lock: " + paths.join(", ") + ".",
+        "agentlocks: staged path(s) covered only by another agent's lock: " + paths.join(", ") + ".",
       );
     }
   }
@@ -324,7 +324,7 @@ const CLAUDE_SHEBANG = "#!/usr/bin/env node";
 
 /**
  * The id-injection-only Claude hook body (byte-identical to the 0.3.0 default
- * `lockpick-agent-env.mjs`). Authored here as the single source of truth so the
+ * `agentlocks-agent-env.mjs`). Authored here as the single source of truth so the
  * merged commit-hook body can be assembled from the same pieces.
  */
 export const CLAUDE_AGENT_ENV_HOOK_BODY = `${CLAUDE_SHEBANG}
@@ -337,10 +337,10 @@ if (input.tool_name !== "Bash") process.exit(0);
 const toolInput = input.tool_input && typeof input.tool_input === "object" ? input.tool_input : null;
 const command = typeof toolInput?.command === "string" ? toolInput.command : "";
 
-if (!command || !invokesLockpick(command)) process.exit(0);
+if (!command || !invokesAgentlocks(command)) process.exit(0);
 if (
-  /\\bLOCKPICK_HARNESS_AGENT_ID\\s*=/.test(command) ||
-  /\\bLOCKPICK_AGENT_ID\\s*=/.test(command) ||
+  /\\bAGENTLOCKS_HARNESS_AGENT_ID\\s*=/.test(command) ||
+  /\\bAGENTLOCKS_AGENT_ID\\s*=/.test(command) ||
   /(^|\\s)--agent-id(\\s|=|$)/.test(command)
 ) {
   process.exit(0);
@@ -366,16 +366,16 @@ process.stdout.write(
       hookEventName: "PreToolUse",
       updatedInput: {
         ...toolInput,
-        command: \`export LOCKPICK_HARNESS_AGENT_ID=\${shellQuote(ownerId)}; \${command}\`,
+        command: \`export AGENTLOCKS_HARNESS_AGENT_ID=\${shellQuote(ownerId)}; \${command}\`,
       },
     },
   }),
 );
 
-function invokesLockpick(command) {
-  const direct = /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*lockpick(?:\\s|$)/;
+function invokesAgentlocks(command) {
+  const direct = /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*agentlocks(?:\\s|$)/;
   const packageScript =
-    /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*(?:bun|npm|pnpm)\\s+run\\s+(?:--silent\\s+)?lockpick(?::[A-Za-z0-9:_-]+)?(?:\\s|$)/;
+    /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*(?:bun|npm|pnpm)\\s+run\\s+(?:--silent\\s+)?agentlocks(?::[A-Za-z0-9:_-]+)?(?:\\s|$)/;
   return direct.test(command) || packageScript.test(command);
 }
 
@@ -385,7 +385,7 @@ function shellQuote(value) {
 `;
 
 /**
- * The MERGED Claude hook body: agent-id injection (gated on `invokesLockpick`)
+ * The MERGED Claude hook body: agent-id injection (gated on `invokesAgentlocks`)
  * AND the gated git-commit verify branch (run BEFORE the injection early-exit
  * so a raw `git commit` reaches verify — §4.2). One node spawn per Bash.
  */
@@ -416,15 +416,15 @@ const ownerId = sessionId
     : \`claude-code:\${sessionId}:main\`
   : "";
 
-// VERIFY BRANCH — independent of invokesLockpick so a raw \`git commit\` reaches it.
-if (lockpickIsGitCommit(command)) {
+// VERIFY BRANCH — independent of invokesAgentlocks so a raw \`git commit\` reaches it.
+if (agentlocksIsGitCommit(command)) {
   try {
     const toolCwd =
       typeof input.cwd === "string" && input.cwd.trim() ? input.cwd.trim() : process.cwd();
-    const form = lockpickParseCommitForm(command, toolCwd);
+    const form = agentlocksParseCommitForm(command, toolCwd);
     if (form) {
-      const result = lockpickRunVerify(form, ownerId);
-      const advice = lockpickBuildAdvice(result, form.note);
+      const result = agentlocksRunVerify(form, ownerId);
+      const advice = agentlocksBuildAdvice(result, form.note);
       if (advice) {
         process.stdout.write(
           JSON.stringify({
@@ -444,11 +444,11 @@ if (lockpickIsGitCommit(command)) {
   process.exit(0);
 }
 
-// ID INJECTION — gated on invokesLockpick (only lockpick commands need it).
-if (!invokesLockpick(command)) process.exit(0);
+// ID INJECTION — gated on invokesAgentlocks (only agentlocks commands need it).
+if (!invokesAgentlocks(command)) process.exit(0);
 if (
-  /\\bLOCKPICK_HARNESS_AGENT_ID\\s*=/.test(command) ||
-  /\\bLOCKPICK_AGENT_ID\\s*=/.test(command) ||
+  /\\bAGENTLOCKS_HARNESS_AGENT_ID\\s*=/.test(command) ||
+  /\\bAGENTLOCKS_AGENT_ID\\s*=/.test(command) ||
   /(^|\\s)--agent-id(\\s|=|$)/.test(command)
 ) {
   process.exit(0);
@@ -461,16 +461,16 @@ process.stdout.write(
       hookEventName: "PreToolUse",
       updatedInput: {
         ...toolInput,
-        command: \`export LOCKPICK_HARNESS_AGENT_ID=\${shellQuote(ownerId)}; \${command}\`,
+        command: \`export AGENTLOCKS_HARNESS_AGENT_ID=\${shellQuote(ownerId)}; \${command}\`,
       },
     },
   }),
 );
 
-function invokesLockpick(command) {
-  const direct = /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*lockpick(?:\\s|$)/;
+function invokesAgentlocks(command) {
+  const direct = /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*agentlocks(?:\\s|$)/;
   const packageScript =
-    /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*(?:bun|npm|pnpm)\\s+run\\s+(?:--silent\\s+)?lockpick(?::[A-Za-z0-9:_-]+)?(?:\\s|$)/;
+    /(^|[;&|(){}]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s]+\\s+)*(?:bun|npm|pnpm)\\s+run\\s+(?:--silent\\s+)?agentlocks(?::[A-Za-z0-9:_-]+)?(?:\\s|$)/;
   return direct.test(command) || packageScript.test(command);
 }
 
@@ -484,7 +484,7 @@ ${SHARED_VERIFY_LOGIC}
 /**
  * The Codex verify-only hook body (twin of the Claude verify branch, with Codex
  * stdin/stdout I/O — §4.3). Codex resolves its identity from the inherited
- * ambient `CODEX_THREAD_ID`, so it passes no `LOCKPICK_HARNESS_AGENT_ID`.
+ * ambient `CODEX_THREAD_ID`, so it passes no `AGENTLOCKS_HARNESS_AGENT_ID`.
  */
 export const CODEX_COMMIT_HOOK_BODY = `${CLAUDE_SHEBANG}
 import { readFileSync } from "node:fs";
@@ -493,15 +493,15 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const input = JSON.parse(readFileSync(0, "utf8") || "{}");
 
-const command = lockpickExtractCommand(input);
-if (!command || !lockpickIsGitCommit(command)) process.exit(0);
+const command = agentlocksExtractCommand(input);
+if (!command || !agentlocksIsGitCommit(command)) process.exit(0);
 
 try {
-  const toolCwd = lockpickExtractCwd(input);
-  const form = lockpickParseCommitForm(command, toolCwd);
+  const toolCwd = agentlocksExtractCwd(input);
+  const form = agentlocksParseCommitForm(command, toolCwd);
   if (form) {
-    const result = lockpickRunVerify(form, "");
-    const advice = lockpickBuildAdvice(result, form.note);
+    const result = agentlocksRunVerify(form, "");
+    const advice = agentlocksBuildAdvice(result, form.note);
     if (advice) {
       process.stdout.write(
         JSON.stringify({
@@ -522,7 +522,7 @@ try {
 }
 process.exit(0);
 
-function lockpickExtractCommand(input) {
+function agentlocksExtractCommand(input) {
   if (!input || typeof input !== "object") return "";
   const candidates = [
     input.tool_input && input.tool_input.command,
@@ -537,7 +537,7 @@ function lockpickExtractCommand(input) {
   return "";
 }
 
-function lockpickExtractCwd(input) {
+function agentlocksExtractCwd(input) {
   const candidates = [
     input && input.cwd,
     input && input.tool_input && input.tool_input.cwd,

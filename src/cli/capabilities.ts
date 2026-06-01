@@ -1,10 +1,10 @@
 import packageJson from "../../package.json";
 import { DEFAULT_CONFIG_FILE, DEFAULT_LOCK_ROOT } from "../config";
 import {
+  AGENTLOCKS_HARNESS_AGENT_ENV_KEY,
   CLAUDE_CODE_SESSION_ENV_KEY,
   CODEX_OWNER_ENV_KEY,
   DEFAULT_AGENT_ENV_KEYS,
-  LOCKPICK_HARNESS_AGENT_ENV_KEY,
 } from "../locks/session";
 import {
   DEFAULT_LOCK_TTL_MS,
@@ -53,12 +53,12 @@ interface OwnerDetectionCapability {
   }>;
 }
 
-export interface LockpickCapabilities {
+export interface AgentlocksCapabilities {
   kind: "capabilities";
   schema_version: 1;
-  name: "lockpick";
+  name: "agentlocks";
   version: string;
-  contract: "lockpick.capabilities.v1";
+  contract: "agentlocks.capabilities.v1";
   commands: CommandCapability[];
   exit_codes: ExitCodeCapability[];
   env: EnvCapability[];
@@ -78,17 +78,17 @@ const AGENT_FLAGS = ["--agent-id"];
 const TTL_FLAGS = ["--ttl-ms"];
 const RESOURCE_FLAGS = ["--glob"];
 
-export function lockpickCapabilities(): LockpickCapabilities {
+export function agentlocksCapabilities(): AgentlocksCapabilities {
   return {
     kind: "capabilities",
     schema_version: 1,
-    name: "lockpick",
+    name: "agentlocks",
     version: packageJson.version,
-    contract: "lockpick.capabilities.v1",
+    contract: "agentlocks.capabilities.v1",
     commands: [
       {
         name: "acquire",
-        usage: "lockpick acquire [paths...] --reason <text>",
+        usage: "agentlocks acquire [paths...] --reason <text>",
         summary: "Acquire advisory locks for paths or globs.",
         category: "lock",
         mutates: true,
@@ -106,14 +106,14 @@ export function lockpickCapabilities(): LockpickCapabilities {
         required: ["--reason", "path-or-glob"],
         exit_codes: [0, 2, 3],
         next: [
-          "lockpick refresh <lock_id>",
-          'lockpick git begin --refresh-lock <lock_id> --reason "<commit intent>"',
-          "lockpick release <lock_id>",
+          "agentlocks refresh <lock_id>",
+          'agentlocks git begin --refresh-lock <lock_id> --reason "<commit intent>"',
+          "agentlocks release <lock_id>",
         ],
       },
       {
         name: "expand",
-        usage: "lockpick expand --lock <lock_id> [paths...]",
+        usage: "agentlocks expand --lock <lock_id> [paths...]",
         summary: "Atomically add paths or globs to an existing lock.",
         category: "lock",
         mutates: true,
@@ -130,11 +130,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         ],
         required: ["--lock", "path-or-glob"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick refresh <lock_id>", "lockpick release <lock_id>"],
+        next: ["agentlocks refresh <lock_id>", "agentlocks release <lock_id>"],
       },
       {
         name: "refresh",
-        usage: "lockpick refresh [lock_ids...]",
+        usage: "agentlocks refresh [lock_ids...]",
         summary: "Refresh held lock leases.",
         category: "lock",
         mutates: true,
@@ -144,11 +144,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--lock", "--mine", ...TTL_FLAGS, ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         exit_codes: [0, 2, 3],
-        next: ['lockpick git begin --refresh-lock <lock_id> --reason "<commit intent>"'],
+        next: ['agentlocks git begin --refresh-lock <lock_id> --reason "<commit intent>"'],
       },
       {
         name: "release",
-        usage: "lockpick release [lock_ids...]",
+        usage: "agentlocks release [lock_ids...]",
         summary: "Release held locks, or every lock you hold with --mine.",
         category: "lock",
         mutates: true,
@@ -158,11 +158,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--lock", "--mine", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick status --json"],
+        next: ["agentlocks status --json"],
       },
       {
         name: "status",
-        usage: "lockpick status [paths...]",
+        usage: "agentlocks status [paths...]",
         summary: "Show active locks, optionally filtered by resources or --mine.",
         category: "lock",
         mutates: false,
@@ -172,11 +172,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...RESOURCE_FLAGS, "--mine", ...LOCK_OUTPUT_FLAGS],
         required: [],
         exit_codes: [0, 2],
-        next: ['lockpick acquire <paths...> --reason "<intent>" --id-only'],
+        next: ['agentlocks acquire <paths...> --reason "<intent>" --id-only'],
       },
       {
         name: "board",
-        usage: "lockpick board [paths...]",
+        usage: "agentlocks board [paths...]",
         summary: "Overview of active locks grouped by agent with each lease's state.",
         category: "lock",
         mutates: false,
@@ -186,11 +186,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...RESOURCE_FLAGS, "--mine", ...LOCK_OUTPUT_FLAGS],
         required: [],
         exit_codes: [0, 2],
-        next: ['lockpick acquire <paths...> --reason "<intent>" --id-only'],
+        next: ['agentlocks acquire <paths...> --reason "<intent>" --id-only'],
       },
       {
         name: "prune",
-        usage: "lockpick prune",
+        usage: "agentlocks prune",
         summary: "Remove reclaimable expired locks.",
         category: "lock",
         mutates: true,
@@ -200,12 +200,12 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--dry-run", ...LOCK_OUTPUT_FLAGS],
         required: [],
         exit_codes: [0, 2],
-        next: ['lockpick acquire <paths...> --reason "<intent>" --id-only'],
+        next: ['agentlocks acquire <paths...> --reason "<intent>" --id-only'],
         dry_run: "--dry-run",
       },
       {
         name: "identify",
-        usage: "lockpick identify",
+        usage: "agentlocks identify",
         summary: "Show detected lock agent identity.",
         category: "lock",
         mutates: false,
@@ -215,11 +215,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...AGENT_FLAGS, "--json", "--verbose"],
         required: [],
         exit_codes: [0],
-        next: ['lockpick acquire <paths...> --reason "<intent>"'],
+        next: ['agentlocks acquire <paths...> --reason "<intent>"'],
       },
       {
         name: "git begin",
-        usage: "lockpick git begin --reason <text>",
+        usage: "agentlocks git begin --reason <text>",
         summary: `Acquire the synthetic ${GIT_INDEX_RESOURCE} lock.`,
         category: "git",
         mutates: true,
@@ -232,12 +232,12 @@ export function lockpickCapabilities(): LockpickCapabilities {
         next: [
           "git add <locked_paths>",
           "git commit",
-          "lockpick git end <git_lock_id> --release-lock <lock_id>",
+          "agentlocks git end <git_lock_id> --release-lock <lock_id>",
         ],
       },
       {
         name: "git end",
-        usage: "lockpick git end [git_lock_ids...]",
+        usage: "agentlocks git end [git_lock_ids...]",
         summary: `Release the synthetic ${GIT_INDEX_RESOURCE} lock.`,
         category: "git",
         mutates: true,
@@ -247,11 +247,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--lock", "--release-lock", "--git-token", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick status --json"],
+        next: ["agentlocks status --json"],
       },
       {
         name: "git verify",
-        usage: "lockpick git verify",
+        usage: "agentlocks git verify",
         summary: "Advisory check: are staged paths covered by a held lock? (never blocks)",
         category: "git",
         mutates: false,
@@ -268,11 +268,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         ],
         required: [],
         exit_codes: [0],
-        next: ['lockpick acquire <paths...> --reason "<intent>"'],
+        next: ['agentlocks acquire <paths...> --reason "<intent>"'],
       },
       {
         name: "run",
-        usage: "lockpick run [paths...] --reason <text> -- <command>",
+        usage: "agentlocks run [paths...] --reason <text> -- <command>",
         summary: "Acquire locks, run a command after --, then release.",
         category: "lock",
         mutates: true,
@@ -282,11 +282,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...RESOURCE_FLAGS, "--reason", ...TTL_FLAGS, ...AGENT_FLAGS],
         required: ["--reason", "-- command"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick status --json"],
+        next: ["agentlocks status --json"],
       },
       {
         name: "edit",
-        usage: "lockpick edit [paths...] --reason <text> -- <command>",
+        usage: "agentlocks edit [paths...] --reason <text> -- <command>",
         summary: "Acquire locks, run a command after --, and keep the lock for later turns.",
         category: "lock",
         mutates: true,
@@ -296,11 +296,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...RESOURCE_FLAGS, "--reason", ...TTL_FLAGS, ...AGENT_FLAGS],
         required: ["--reason", "-- command"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick refresh <lock_id>", "lockpick release <lock_id>"],
+        next: ["agentlocks refresh <lock_id>", "agentlocks release <lock_id>"],
       },
       {
         name: "commit",
-        usage: "lockpick commit [paths...] --reason <text> -m <message>",
+        usage: "agentlocks commit [paths...] --reason <text> -m <message>",
         summary: "Lock paths and the Git index, stage and commit only those paths, then release.",
         category: "git",
         mutates: true,
@@ -310,13 +310,13 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [...RESOURCE_FLAGS, "--reason", "--message", "--keep", ...TTL_FLAGS, ...AGENT_FLAGS],
         required: ["--reason"],
         exit_codes: [0, 2, 3],
-        next: ["lockpick status --json"],
+        next: ["agentlocks status --json"],
       },
       {
         name: "init",
         usage:
-          "lockpick init [--check] [--harness auto|codex|claude-code] [--no-commit-hook] [--json]",
-        summary: "Initialize Lockpick support files (incl. the commit-hook backstop by default).",
+          "agentlocks init [--check] [--harness auto|codex|claude-code] [--no-commit-hook] [--json]",
+        summary: "Initialize Agentlocks support files (incl. the commit-hook backstop by default).",
         category: "init",
         mutates: true,
         json: true,
@@ -325,12 +325,12 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--check", "--harness", "--no-commit-hook", "--json", "--verbose"],
         required: [],
         exit_codes: [0, 1],
-        next: ["lockpick init --check --json"],
+        next: ["agentlocks init --check --json"],
         dry_run: "--check",
       },
       {
         name: "capabilities",
-        usage: "lockpick capabilities --json",
+        usage: "agentlocks capabilities --json",
         summary: "Print the machine-readable CLI contract.",
         category: "meta",
         mutates: false,
@@ -340,11 +340,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--json"],
         required: [],
         exit_codes: [0],
-        next: ["lockpick status --json"],
+        next: ["agentlocks status --json"],
       },
       {
         name: "robot-docs guide",
-        usage: "lockpick robot-docs guide",
+        usage: "agentlocks robot-docs guide",
         summary: "Print the concise agent workflow guide.",
         category: "meta",
         mutates: false,
@@ -354,12 +354,12 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: [],
         required: [],
         exit_codes: [0],
-        next: ["lockpick capabilities --json", "lockpick status --json"],
+        next: ["agentlocks capabilities --json", "agentlocks status --json"],
       },
       {
         name: "doctor",
-        usage: "lockpick doctor --json",
-        summary: "Run read-only Lockpick health checks.",
+        usage: "agentlocks doctor --json",
+        summary: "Run read-only Agentlocks health checks.",
         category: "meta",
         mutates: false,
         json: true,
@@ -368,7 +368,7 @@ export function lockpickCapabilities(): LockpickCapabilities {
         flags: ["--json", "--verbose"],
         required: [],
         exit_codes: [0, 1],
-        next: ["lockpick init --check --json"],
+        next: ["agentlocks init --check --json"],
       },
     ],
     exit_codes: [
@@ -391,7 +391,7 @@ export function lockpickCapabilities(): LockpickCapabilities {
         purpose: "Agent id lookup for unsupported harnesses, after harness detection.",
       })),
       {
-        name: LOCKPICK_HARNESS_AGENT_ENV_KEY,
+        name: AGENTLOCKS_HARNESS_AGENT_ENV_KEY,
         purpose: "Reserved harness-provided agent id, checked before explicit --agent-id.",
       },
       {
@@ -405,11 +405,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
     ],
     owner_detection: {
       order: [
-        LOCKPICK_HARNESS_AGENT_ENV_KEY,
+        AGENTLOCKS_HARNESS_AGENT_ENV_KEY,
         CODEX_OWNER_ENV_KEY,
         CLAUDE_CODE_SESSION_ENV_KEY,
         "--agent-id",
-        "LOCKPICK_AGENT_ID",
+        "AGENTLOCKS_AGENT_ID",
         "fallback",
       ],
       harnesses: [
@@ -437,11 +437,11 @@ export function lockpickCapabilities(): LockpickCapabilities {
 }
 
 export function renderCapabilitiesText(): string {
-  const capabilities = lockpickCapabilities();
+  const capabilities = agentlocksCapabilities();
   return [
-    "lockpick capabilities",
+    "agentlocks capabilities",
     `version: ${capabilities.version}`,
-    "json: lockpick capabilities --json",
+    "json: agentlocks capabilities --json",
     `commands: ${capabilities.commands.map((command) => command.name).join(", ")}`,
   ].join("\n");
 }

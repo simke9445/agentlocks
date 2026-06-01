@@ -32,17 +32,17 @@ type CommitForm = {
 };
 
 type SharedVerifyLogic = {
-  lockpickIsGitCommit: (command: unknown) => boolean;
-  lockpickParseCommitForm: (command: string, toolCwd: string) => CommitForm | null;
+  agentlocksIsGitCommit: (command: unknown) => boolean;
+  agentlocksParseCommitForm: (command: string, toolCwd: string) => CommitForm | null;
 };
 
 // The detector / form-parser live as emitted JS inside SHARED_VERIFY_LOGIC, not
 // as exported TS. Slice that block out of the generated Claude body (the single
 // source of truth) and eval it so the assertions run against the actual shipped
 // source, byte-for-byte. `require` is injected because the emitted script wires
-// its own `createRequire` and lockpickParseCommitForm calls `require("node:path")`.
+// its own `createRequire` and agentlocksParseCommitForm calls `require("node:path")`.
 function loadSharedVerifyLogic(): SharedVerifyLogic {
-  const marker = "function lockpickTokenizeSegments(command) {";
+  const marker = "function agentlocksTokenizeSegments(command) {";
   const index = CLAUDE_COMMIT_HOOK_BODY.indexOf(marker);
   if (index === -1) {
     throw new Error("SHARED_VERIFY_LOGIC marker not found in CLAUDE_COMMIT_HOOK_BODY");
@@ -50,12 +50,12 @@ function loadSharedVerifyLogic(): SharedVerifyLogic {
   const source = CLAUDE_COMMIT_HOOK_BODY.slice(index);
   const factory = new Function(
     "require",
-    `${source}\nreturn { lockpickIsGitCommit, lockpickParseCommitForm };`,
+    `${source}\nreturn { agentlocksIsGitCommit, agentlocksParseCommitForm };`,
   );
   return factory(require) as SharedVerifyLogic;
 }
 
-const { lockpickIsGitCommit, lockpickParseCommitForm } = loadSharedVerifyLogic();
+const { agentlocksIsGitCommit, agentlocksParseCommitForm } = loadSharedVerifyLogic();
 
 describe("merged Claude commit-hook body", () => {
   test("renderClaudeCommitHookScript returns the merged (verify-enabled) body", () => {
@@ -65,28 +65,28 @@ describe("merged Claude commit-hook body", () => {
   test("merged body carries the git-commit detection + verify branch", () => {
     const body = renderClaudeCommitHookScript();
     // Commit detection + the verify branch (with the §3.5a effective-set wiring).
-    expect(body).toContain("lockpickIsGitCommit");
-    expect(body).toContain("lockpickParseCommitForm");
-    expect(body).toContain("lockpickRunVerify");
-    expect(body).toContain("lockpickBuildAdvice");
+    expect(body).toContain("agentlocksIsGitCommit");
+    expect(body).toContain("agentlocksParseCommitForm");
+    expect(body).toContain("agentlocksRunVerify");
+    expect(body).toContain("agentlocksBuildAdvice");
     // The verify spawn emits the argv `["git", "verify", "--json"]` (the binary
-    // is `lockpick`, the subcommand args are separate tokens — not a literal
+    // is `agentlocks`, the subcommand args are separate tokens — not a literal
     // "git verify" string).
     expect(body).toContain('"git", "verify", "--json"');
-    expect(body).toContain('spawnSync("lockpick"');
+    expect(body).toContain('spawnSync("agentlocks"');
     // The verify spawn carries the scoped owner id (GIT_HOOK_SPEC §4.2 / finding #3).
-    expect(body).toContain("LOCKPICK_HARNESS_AGENT_ID");
+    expect(body).toContain("AGENTLOCKS_HARNESS_AGENT_ID");
     // Advisory only: allows, never denies (GIT_HOOK_SPEC §4.1 step 6).
     expect(body).toContain('"allow"');
     expect(body).not.toContain('"deny"');
-    // Still injects the scoped agent id for lockpick commands.
-    expect(body).toContain("invokesLockpick");
+    // Still injects the scoped agent id for agentlocks commands.
+    expect(body).toContain("invokesAgentlocks");
   });
 
-  test("merged body detects git commit BEFORE the invokesLockpick early-exit (finding #4)", () => {
+  test("merged body detects git commit BEFORE the invokesAgentlocks early-exit (finding #4)", () => {
     const body = renderClaudeCommitHookScript();
-    const verifyBranch = body.indexOf("if (lockpickIsGitCommit(command))");
-    const injectionGate = body.indexOf("if (!invokesLockpick(command)) process.exit(0)");
+    const verifyBranch = body.indexOf("if (agentlocksIsGitCommit(command))");
+    const injectionGate = body.indexOf("if (!invokesAgentlocks(command)) process.exit(0)");
     expect(verifyBranch).toBeGreaterThan(-1);
     expect(injectionGate).toBeGreaterThan(-1);
     // The verify branch must run first so a raw `git commit` is not fast-exited.
@@ -95,12 +95,12 @@ describe("merged Claude commit-hook body", () => {
 
   test("WITHOUT --commit-hook the body is the id-injection-only form (verify branch absent)", () => {
     // The id-injection-only body is byte-stable and carries no verify logic.
-    expect(CLAUDE_AGENT_ENV_HOOK_BODY).not.toContain("lockpickIsGitCommit");
+    expect(CLAUDE_AGENT_ENV_HOOK_BODY).not.toContain("agentlocksIsGitCommit");
     expect(CLAUDE_AGENT_ENV_HOOK_BODY).not.toContain("git verify");
-    expect(CLAUDE_AGENT_ENV_HOOK_BODY).not.toContain("lockpickParseCommitForm");
+    expect(CLAUDE_AGENT_ENV_HOOK_BODY).not.toContain("agentlocksParseCommitForm");
     // It still injects the scoped agent id.
-    expect(CLAUDE_AGENT_ENV_HOOK_BODY).toContain("invokesLockpick");
-    expect(CLAUDE_AGENT_ENV_HOOK_BODY).toContain("LOCKPICK_HARNESS_AGENT_ID");
+    expect(CLAUDE_AGENT_ENV_HOOK_BODY).toContain("invokesAgentlocks");
+    expect(CLAUDE_AGENT_ENV_HOOK_BODY).toContain("AGENTLOCKS_HARNESS_AGENT_ID");
     // The merged body strictly extends it (it is genuinely different text).
     expect(renderClaudeCommitHookScript()).not.toBe(CLAUDE_AGENT_ENV_HOOK_BODY);
   });
@@ -113,63 +113,63 @@ describe("Codex commit-hook body", () => {
 
   test("Codex twin carries detection + verify and stays advisory-only", () => {
     const body = renderCodexCommitHookScript();
-    expect(body).toContain("lockpickIsGitCommit");
-    expect(body).toContain("lockpickParseCommitForm");
-    expect(body).toContain("lockpickRunVerify");
+    expect(body).toContain("agentlocksIsGitCommit");
+    expect(body).toContain("agentlocksParseCommitForm");
+    expect(body).toContain("agentlocksRunVerify");
     expect(body).toContain('"git", "verify", "--json"');
     expect(body).toContain('"allow"');
     expect(body).not.toContain('"deny"');
     // Codex reads its own command/cwd shape and resolves identity from the
     // inherited ambient CODEX_THREAD_ID, so it computes NO scoped owner id and
-    // runs verify with an empty harness id (the shared `lockpickRunVerify` helper
+    // runs verify with an empty harness id (the shared `agentlocksRunVerify` helper
     // still references the env key, but Codex never passes a value into it —
     // contrast the Claude body, which passes the computed `ownerId`).
-    expect(body).toContain("lockpickExtractCommand");
-    expect(body).toContain("lockpickExtractCwd");
-    expect(body).toContain('lockpickRunVerify(form, "")');
+    expect(body).toContain("agentlocksExtractCommand");
+    expect(body).toContain("agentlocksExtractCwd");
+    expect(body).toContain('agentlocksRunVerify(form, "")');
     expect(body).not.toContain("ownerId");
     // The Claude merged body, by contrast, threads the scoped owner id in.
-    expect(CLAUDE_COMMIT_HOOK_BODY).toContain("lockpickRunVerify(form, ownerId)");
+    expect(CLAUDE_COMMIT_HOOK_BODY).toContain("agentlocksRunVerify(form, ownerId)");
   });
 });
 
 describe("commit-detection (GIT_HOOK_SPEC §8 item 16)", () => {
   test("matches git commit and tolerated prefixes", () => {
-    expect(lockpickIsGitCommit("git commit")).toBe(true);
-    expect(lockpickIsGitCommit("git commit -m 'wip'")).toBe(true);
+    expect(agentlocksIsGitCommit("git commit")).toBe(true);
+    expect(agentlocksIsGitCommit("git commit -m 'wip'")).toBe(true);
     // Top-level -c / -C / --git-dir flags between `git` and `commit`.
-    expect(lockpickIsGitCommit("git -c user.name=x commit -m y")).toBe(true);
-    expect(lockpickIsGitCommit("git -C packages/app commit -- a.ts")).toBe(true);
+    expect(agentlocksIsGitCommit("git -c user.name=x commit -m y")).toBe(true);
+    expect(agentlocksIsGitCommit("git -C packages/app commit -- a.ts")).toBe(true);
     // env-var prefix.
-    expect(lockpickIsGitCommit("env FOO=1 git commit")).toBe(true);
-    expect(lockpickIsGitCommit("GIT_AUTHOR_NAME=x git commit -m y")).toBe(true);
+    expect(agentlocksIsGitCommit("env FOO=1 git commit")).toBe(true);
+    expect(agentlocksIsGitCommit("GIT_AUTHOR_NAME=x git commit -m y")).toBe(true);
     // Chained with && / ; / |.
-    expect(lockpickIsGitCommit("cd sub && git commit")).toBe(true);
-    expect(lockpickIsGitCommit("git add . && git commit -m y")).toBe(true);
-    expect(lockpickIsGitCommit("true; git commit")).toBe(true);
+    expect(agentlocksIsGitCommit("cd sub && git commit")).toBe(true);
+    expect(agentlocksIsGitCommit("git add . && git commit -m y")).toBe(true);
+    expect(agentlocksIsGitCommit("true; git commit")).toBe(true);
   });
 
-  test("does NOT match lockpick commit, near-misses, or quoted occurrences", () => {
+  test("does NOT match agentlocks commit, near-misses, or quoted occurrences", () => {
     // Different binary (§5) — must fast-exit so there is no double-fire.
-    expect(lockpickIsGitCommit("lockpick commit")).toBe(false);
-    expect(lockpickIsGitCommit("lockpick commit --reason wip")).toBe(false);
+    expect(agentlocksIsGitCommit("agentlocks commit")).toBe(false);
+    expect(agentlocksIsGitCommit("agentlocks commit --reason wip")).toBe(false);
     // Near-miss subcommand token.
-    expect(lockpickIsGitCommit("git committer-noop")).toBe(false);
+    expect(agentlocksIsGitCommit("git committer-noop")).toBe(false);
     // `git commit` only inside a quoted string is not a real invocation.
-    expect(lockpickIsGitCommit("echo 'git commit'")).toBe(false);
-    expect(lockpickIsGitCommit('echo "git commit"')).toBe(false);
+    expect(agentlocksIsGitCommit("echo 'git commit'")).toBe(false);
+    expect(agentlocksIsGitCommit('echo "git commit"')).toBe(false);
     // No commit at all.
-    expect(lockpickIsGitCommit("git status")).toBe(false);
-    expect(lockpickIsGitCommit("ls -la")).toBe(false);
+    expect(agentlocksIsGitCommit("git status")).toBe(false);
+    expect(agentlocksIsGitCommit("ls -la")).toBe(false);
     // Non-string / no "commit" substring fast path.
-    expect(lockpickIsGitCommit(undefined)).toBe(false);
-    expect(lockpickIsGitCommit(123)).toBe(false);
+    expect(agentlocksIsGitCommit(undefined)).toBe(false);
+    expect(agentlocksIsGitCommit(123)).toBe(false);
   });
 });
 
 describe("commit-form parsing (GIT_HOOK_SPEC §3.5a, §8 item 14a/16a)", () => {
   test("plain commit → index only (no include-unstaged, no pathspec)", () => {
-    const form = lockpickParseCommitForm("git commit -m wip", "/repo");
+    const form = agentlocksParseCommitForm("git commit -m wip", "/repo");
     expect(form).not.toBeNull();
     expect(form?.includeUnstaged).toBe(false);
     expect(form?.pathspecMode).toBeNull();
@@ -184,30 +184,30 @@ describe("commit-form parsing (GIT_HOOK_SPEC §3.5a, §8 item 14a/16a)", () => {
       "git commit -am wip",
       "git commit --all -m wip",
     ]) {
-      const form = lockpickParseCommitForm(command, "/repo");
+      const form = agentlocksParseCommitForm(command, "/repo");
       expect(form?.includeUnstaged).toBe(true);
       expect(form?.pathspecMode).toBeNull();
     }
   });
 
   test("bare pathspec / --only → --pathspec-mode only", () => {
-    const bare = lockpickParseCommitForm("git commit -- a.ts b.ts", "/repo");
+    const bare = agentlocksParseCommitForm("git commit -- a.ts b.ts", "/repo");
     expect(bare?.pathspecMode).toBe("only");
     expect(bare?.pathspecs).toEqual(["a.ts", "b.ts"]);
 
-    const only = lockpickParseCommitForm("git commit --only a.ts", "/repo");
+    const only = agentlocksParseCommitForm("git commit --only a.ts", "/repo");
     expect(only?.pathspecMode).toBe("only");
     expect(only?.pathspecs).toEqual(["a.ts"]);
   });
 
   test("--include → --pathspec-mode include (index ∪ pathspec, finding #1)", () => {
-    const form = lockpickParseCommitForm("git commit --include a.ts", "/repo");
+    const form = agentlocksParseCommitForm("git commit --include a.ts", "/repo");
     expect(form?.pathspecMode).toBe("include");
     expect(form?.pathspecs).toEqual(["a.ts"]);
   });
 
   test("effective cwd: cd <dir> && git commit --include <p> resolves under <dir> (item 16a)", () => {
-    const form = lockpickParseCommitForm("cd packages/app && git commit --include a.ts", "/repo");
+    const form = agentlocksParseCommitForm("cd packages/app && git commit --include a.ts", "/repo");
     expect(form?.pathspecMode).toBe("include");
     expect(form?.pathspecs).toEqual(["a.ts"]);
     // pathspec `a.ts` resolves to packages/app/a.ts, not root a.ts.
@@ -216,14 +216,14 @@ describe("commit-form parsing (GIT_HOOK_SPEC §3.5a, §8 item 14a/16a)", () => {
   });
 
   test("effective cwd: git -C <dir> commit -- <p> resolves under <dir> (item 16a)", () => {
-    const form = lockpickParseCommitForm("git -C packages/app commit -- a.ts", "/repo");
+    const form = agentlocksParseCommitForm("git -C packages/app commit -- a.ts", "/repo");
     expect(form?.pathspecMode).toBe("only");
     expect(form?.pathspecs).toEqual(["a.ts"]);
     expect(form?.effectiveCwd).toBe(path.resolve("/repo", "packages/app"));
   });
 
   test('unparseable cwd (cd "$VAR") → best-effort note, drops the pathspec claim (item 16a)', () => {
-    const form = lockpickParseCommitForm('cd "$VAR" && git commit a.ts', "/repo");
+    const form = agentlocksParseCommitForm('cd "$VAR" && git commit a.ts', "/repo");
     expect(form).not.toBeNull();
     // No false coverage claim: the pathspec mode is dropped and cwd falls back.
     expect(form?.pathspecMode).toBeNull();
@@ -234,8 +234,8 @@ describe("commit-form parsing (GIT_HOOK_SPEC §3.5a, §8 item 14a/16a)", () => {
   });
 
   test("a non-commit command parses to null", () => {
-    expect(lockpickParseCommitForm("git status", "/repo")).toBeNull();
-    expect(lockpickParseCommitForm("lockpick commit", "/repo")).toBeNull();
+    expect(agentlocksParseCommitForm("git status", "/repo")).toBeNull();
+    expect(agentlocksParseCommitForm("agentlocks commit", "/repo")).toBeNull();
   });
 });
 
@@ -259,17 +259,17 @@ describe("runInit --commit-hook dispatch (GIT_HOOK_SPEC §8 item 20 / 20a)", () 
         {
           type: "command",
           command: "node",
-          args: ["$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/lockpick-agent-env.mjs"],
+          args: ["$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/agentlocks-agent-env.mjs"],
         },
       ]);
 
       // The single script body is the merged (verify-enabled) body.
       const hookBody = await readFile(
-        path.join(workspace, ".claude/hooks/lockpick-agent-env.mjs"),
+        path.join(workspace, ".claude/hooks/agentlocks-agent-env.mjs"),
         "utf8",
       );
       expect(hookBody).toBe(renderClaudeCommitHookScript());
-      expect(hookBody).toContain("lockpickIsGitCommit");
+      expect(hookBody).toContain("agentlocksIsGitCommit");
     });
   });
 
@@ -280,11 +280,11 @@ describe("runInit --commit-hook dispatch (GIT_HOOK_SPEC §8 item 20 / 20a)", () 
       await runInit({ root: workspace, harness: "claude-code" });
 
       const hookBody = await readFile(
-        path.join(workspace, ".claude/hooks/lockpick-agent-env.mjs"),
+        path.join(workspace, ".claude/hooks/agentlocks-agent-env.mjs"),
         "utf8",
       );
       expect(hookBody).toBe(CLAUDE_AGENT_ENV_HOOK_BODY);
-      expect(hookBody).not.toContain("lockpickIsGitCommit");
+      expect(hookBody).not.toContain("agentlocksIsGitCommit");
     });
   });
 
@@ -313,7 +313,7 @@ describe("runInit --commit-hook dispatch (GIT_HOOK_SPEC §8 item 20 / 20a)", () 
       expect(handler?.timeout).toBe(30);
       // Command resolves the script via `git rev-parse --show-toplevel` (item 20a).
       expect(handler?.command).toContain("git rev-parse --show-toplevel");
-      expect(handler?.command).toContain(".codex/hooks/lockpick-git-verify.mjs");
+      expect(handler?.command).toContain(".codex/hooks/agentlocks-git-verify.mjs");
 
       // The twin verify script is written and matches the generator.
       const scriptBody = await readFile(
@@ -331,7 +331,7 @@ describe("runInit --commit-hook dispatch (GIT_HOOK_SPEC §8 item 20 / 20a)", () 
 
       // No Claude artifacts on the codex path.
       await expect(
-        readFile(path.join(workspace, ".claude/hooks/lockpick-agent-env.mjs"), "utf8"),
+        readFile(path.join(workspace, ".claude/hooks/agentlocks-agent-env.mjs"), "utf8"),
       ).rejects.toThrow();
     });
   });
@@ -397,7 +397,7 @@ describe("runInit --commit-hook dispatch (GIT_HOOK_SPEC §8 item 20 / 20a)", () 
 });
 
 async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-commit-hook-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-commit-hook-"));
   try {
     await fn(workspace);
   } finally {

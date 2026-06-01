@@ -4,9 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
-  lockpickAgentsSnippet,
-  resolveLockpickConfig,
+  agentlocksAgentsSnippet,
+  CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH,
+  resolveAgentlocksConfig,
   runInit,
 } from "../src/index";
 
@@ -24,11 +24,11 @@ test("init creates support files in an empty repo", async () => {
       await readFile(path.join(workspace, "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
 
-    expect(agents).toContain("Lockpick advisory locks");
-    expect(agents).toContain("lockpick acquire");
-    expect(gitignore).toContain(".lockpick/");
-    expect(packageJson.scripts.lockpick).toBe("lockpick");
-    await expect(readFile(path.join(workspace, "lockpick.config.ts"), "utf8")).resolves.toContain(
+    expect(agents).toContain("Agentlocks advisory locks");
+    expect(agents).toContain("agentlocks acquire");
+    expect(gitignore).toContain(".agentlocks/");
+    expect(packageJson.scripts.agentlocks).toBe("agentlocks");
+    await expect(readFile(path.join(workspace, "agentlocks.config.ts"), "utf8")).resolves.toContain(
       'harnesses: ["codex", "claude-code"]',
     );
   });
@@ -53,11 +53,11 @@ test("init updates existing AGENTS and .gitignore without overwriting unrelated 
     ) as { scripts: Record<string, string> };
 
     expect(agents).toContain("Keep this.");
-    expect(agents).toContain("<!-- lockpick:start -->");
+    expect(agents).toContain("<!-- agentlocks:start -->");
     expect(gitignore).toContain("node_modules/");
-    expect(gitignore).toContain(".lockpick/");
+    expect(gitignore).toContain(".agentlocks/");
     expect(packageJson.scripts.test).toBe("bun test");
-    expect(packageJson.scripts.lockpick).toBe("lockpick");
+    expect(packageJson.scripts.agentlocks).toBe("agentlocks");
   });
 });
 
@@ -73,7 +73,7 @@ test("init writes AGENTS instructions and Claude hooks for the Claude Code harne
       expect.arrayContaining([
         expect.objectContaining({ path: "AGENTS.md", action: "created" }),
         expect.objectContaining({
-          path: CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
+          path: CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH,
           action: "created",
         }),
         expect.objectContaining({ path: ".claude/settings.json", action: "created" }),
@@ -81,8 +81,8 @@ test("init writes AGENTS instructions and Claude hooks for the Claude Code harne
     );
     await expect(readFile(path.join(workspace, "CLAUDE.md"), "utf8")).rejects.toThrow();
     const agents = await readFile(path.join(workspace, "AGENTS.md"), "utf8");
-    expect(agents).toContain("Lockpick advisory locks");
-    expect(agents).toContain("<!-- lockpick:start -->");
+    expect(agents).toContain("Agentlocks advisory locks");
+    expect(agents).toContain("<!-- agentlocks:start -->");
 
     const settings = JSON.parse(
       await readFile(path.join(workspace, ".claude/settings.json"), "utf8"),
@@ -95,17 +95,17 @@ test("init writes AGENTS instructions and Claude hooks for the Claude Code harne
         expect.objectContaining({
           type: "command",
           command: "node",
-          args: ["$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/lockpick-agent-env.mjs"],
+          args: ["$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/agentlocks-agent-env.mjs"],
         }),
       ]),
     );
   });
 });
 
-test("Claude agent hook prefixes Lockpick Bash commands with main or subagent identity", async () => {
+test("Claude agent hook prefixes Agentlocks Bash commands with main or subagent identity", async () => {
   await withWorkspace(async (workspace) => {
     await runInit({ root: workspace, harness: "claude-code" });
-    const hookPath = path.join(workspace, CLAUDE_LOCKPICK_AGENT_HOOK_PATH);
+    const hookPath = path.join(workspace, CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH);
 
     await expect(
       runHook(hookPath, {
@@ -121,7 +121,7 @@ test("Claude agent hook prefixes Lockpick Bash commands with main or subagent id
         hook_event_name: "PreToolUse",
         session_id: "session-1",
         tool_name: "Bash",
-        tool_input: { command: "echo lockpick" },
+        tool_input: { command: "echo agentlocks" },
       }),
     ).resolves.toBe("");
 
@@ -130,7 +130,7 @@ test("Claude agent hook prefixes Lockpick Bash commands with main or subagent id
         hook_event_name: "PreToolUse",
         session_id: "session-1",
         tool_name: "Bash",
-        tool_input: { command: "lockpick acquire README.md --reason edit" },
+        tool_input: { command: "agentlocks acquire README.md --reason edit" },
       }),
     ) as {
       hookSpecificOutput?: {
@@ -142,7 +142,7 @@ test("Claude agent hook prefixes Lockpick Bash commands with main or subagent id
     expect(main.hookSpecificOutput?.additionalContext).toBeUndefined();
     expect(main.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(main.hookSpecificOutput?.updatedInput?.command).toBe(
-      "export LOCKPICK_HARNESS_AGENT_ID='claude-code:session-1:main'; lockpick acquire README.md --reason edit",
+      "export AGENTLOCKS_HARNESS_AGENT_ID='claude-code:session-1:main'; agentlocks acquire README.md --reason edit",
     );
 
     const agent = JSON.parse(
@@ -152,7 +152,7 @@ test("Claude agent hook prefixes Lockpick Bash commands with main or subagent id
         agent_id: "agent-1",
         agent_type: "Explore",
         tool_name: "Bash",
-        tool_input: { command: "bun run --silent lockpick -- acquire README.md --reason edit" },
+        tool_input: { command: "bun run --silent agentlocks -- acquire README.md --reason edit" },
       }),
     ) as {
       hookSpecificOutput?: {
@@ -160,15 +160,15 @@ test("Claude agent hook prefixes Lockpick Bash commands with main or subagent id
       };
     };
     expect(agent.hookSpecificOutput?.updatedInput?.command).toBe(
-      "export LOCKPICK_HARNESS_AGENT_ID='claude-code:session-1:agent:agent-1'; bun run --silent lockpick -- acquire README.md --reason edit",
+      "export AGENTLOCKS_HARNESS_AGENT_ID='claude-code:session-1:agent:agent-1'; bun run --silent agentlocks -- acquire README.md --reason edit",
     );
   });
 });
 
-test("Claude agent hook does not override explicit Lockpick agent ids", async () => {
+test("Claude agent hook does not override explicit Agentlocks agent ids", async () => {
   await withWorkspace(async (workspace) => {
     await runInit({ root: workspace, harness: "claude-code" });
-    const hookPath = path.join(workspace, CLAUDE_LOCKPICK_AGENT_HOOK_PATH);
+    const hookPath = path.join(workspace, CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH);
     await expect(
       runHook(hookPath, {
         hook_event_name: "PreToolUse",
@@ -176,7 +176,7 @@ test("Claude agent hook does not override explicit Lockpick agent ids", async ()
         agent_id: "agent-1",
         tool_name: "Bash",
         tool_input: {
-          command: "LOCKPICK_HARNESS_AGENT_ID=custom lockpick status",
+          command: "AGENTLOCKS_HARNESS_AGENT_ID=custom agentlocks status",
         },
       }),
     ).resolves.toBe("");
@@ -187,7 +187,7 @@ test("Claude agent hook does not override explicit Lockpick agent ids", async ()
         agent_id: "agent-1",
         tool_name: "Bash",
         tool_input: {
-          command: "LOCKPICK_AGENT_ID=custom lockpick status",
+          command: "AGENTLOCKS_AGENT_ID=custom agentlocks status",
         },
       }),
     ).resolves.toBe("");
@@ -198,7 +198,7 @@ test("Claude agent hook does not override explicit Lockpick agent ids", async ()
         agent_id: "agent-1",
         tool_name: "Bash",
         tool_input: {
-          command: "lockpick acquire README.md --reason edit --agent-id custom",
+          command: "agentlocks acquire README.md --reason edit --agent-id custom",
         },
       }),
     ).resolves.toBe("");
@@ -208,11 +208,11 @@ test("Claude agent hook does not override explicit Lockpick agent ids", async ()
 test("init preserves existing config and is idempotent", async () => {
   await withWorkspace(async (workspace) => {
     const configText = 'export default { projectName: "Custom", lockRoot: ".custom-locks" };\n';
-    await writeFile(path.join(workspace, "lockpick.config.ts"), configText, "utf8");
+    await writeFile(path.join(workspace, "agentlocks.config.ts"), configText, "utf8");
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
 
     await runInit({ root: workspace });
-    expect(await readFile(path.join(workspace, "lockpick.config.ts"), "utf8")).toBe(configText);
+    expect(await readFile(path.join(workspace, "agentlocks.config.ts"), "utf8")).toBe(configText);
 
     const rerun = await runInit({ root: workspace });
     expect(rerun.ok).toBe(true);
@@ -232,19 +232,19 @@ test("init check reports missing files without writing", async () => {
   });
 });
 
-test("generated AGENTS snippet renders lockpick command usage", () => {
-  const config = resolveLockpickConfig({}, { root: process.cwd() });
-  const snippet = lockpickAgentsSnippet(config);
-  expect(snippet).toContain("lockpick acquire");
-  expect(snippet).toContain("lockpick refresh");
-  // `lockpick commit` is the preferred, explained commit path; git begin/end stays as the alternative.
-  expect(snippet).toContain("lockpick commit");
+test("generated AGENTS snippet renders agentlocks command usage", () => {
+  const config = resolveAgentlocksConfig({}, { root: process.cwd() });
+  const snippet = agentlocksAgentsSnippet(config);
+  expect(snippet).toContain("agentlocks acquire");
+  expect(snippet).toContain("agentlocks refresh");
+  // `agentlocks commit` is the preferred, explained commit path; git begin/end stays as the alternative.
+  expect(snippet).toContain("agentlocks commit");
   expect(snippet).toContain("prefer the one-command path");
-  expect(snippet).toContain("lockpick git begin");
+  expect(snippet).toContain("agentlocks git begin");
 });
 
 async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-init-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-init-"));
   try {
     await fn(workspace);
   } finally {

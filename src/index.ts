@@ -1,22 +1,23 @@
 #!/usr/bin/env bun
 export { main } from "./cli/index";
 export {
-  defineLockpickConfig,
+  type AgentlocksConfig,
+  defineAgentlocksConfig,
   findHostRoot,
-  type LockpickConfig,
-  loadLockpickConfig,
-  type ResolvedLockpickConfig,
-  renderLockpickCommand,
-  resolveLockpickConfig,
+  loadAgentlocksConfig,
+  type ResolvedAgentlocksConfig,
+  renderAgentlocksCommand,
+  resolveAgentlocksConfig,
 } from "./config";
+export { AgentlocksConfigError, validateAgentlocksConfig } from "./config-validate";
 export {
-  CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
+  agentlocksAgentsSnippet,
+  CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH,
   CODEX_COMMIT_HOOK_SCRIPT_PATH,
   type InitHarness,
   type InitResult,
-  lockpickAgentsSnippet,
+  renderClaudeAgentlocksAgentHookScript,
   renderClaudeCommitHookScript,
-  renderClaudeLockpickAgentHookScript,
   renderCodexCommitHookScript,
   renderInitResult,
   resolveInitHarness,
@@ -28,6 +29,7 @@ export { resourceCovers, resourcesConflict, resourcesCover } from "./locks/match
 export { FileLockRegistry, gitIndexToken } from "./locks/registry";
 export { normalizeLockResources } from "./locks/resources";
 export {
+  AGENTLOCKS_HARNESS_AGENT_ENV_KEY,
   CLAUDE_CODE_SESSION_ENV_KEY,
   CLAUDE_PROJECTS_DIR_ENV_KEY,
   type ClaudeCodeProbeOptions,
@@ -42,7 +44,6 @@ export {
   type HarnessSessionProbeOptions,
   identifyLockOwner,
   isReliableOwnerIdentity,
-  LOCKPICK_HARNESS_AGENT_ENV_KEY,
   lockOwnerAgentId,
   lockOwnerSource,
   probeClaudeCodeSessionLiveness,

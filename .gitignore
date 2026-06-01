@@ -1,4 +1,4 @@
-.lockpick/
+.agentlocks/
 node_modules/
 dist/
 out/

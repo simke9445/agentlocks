@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { validateAgentlocksConfig } from "./config-validate";
 import { pathExists } from "./io";
 import {
   DEFAULT_AGENT_ENV_KEYS,
@@ -13,25 +14,25 @@ import {
   MAX_LOCK_TTL_MS,
 } from "./locks/types";
 
-export const DEFAULT_LOCK_ROOT = ".lockpick/locks";
-export const DEFAULT_CONFIG_FILE = "lockpick.config.ts";
+export const DEFAULT_LOCK_ROOT = ".agentlocks/locks";
+export const DEFAULT_CONFIG_FILE = "agentlocks.config.ts";
 
 export type LivenessAdapterName = "auto" | "unknown" | "codex" | "claude-code";
 
-export interface LockpickCommandConfig {
+export interface AgentlocksCommandConfig {
   executable?: string;
   prefix?: string[];
   packageRunner?: string;
   packageScript?: string;
 }
 
-export interface LockpickOwnerConfig {
+export interface AgentlocksOwnerConfig {
   envKeys?: string[];
   harnesses?: OwnerHarness[];
   fallbackPrefix?: string;
 }
 
-export interface LockpickDefaultsConfig {
+export interface AgentlocksDefaultsConfig {
   ttlMs?: number;
   maxTtlMs?: number;
   unknownLivenessGraceMs?: number;
@@ -44,28 +45,28 @@ export interface LockpickDefaultsConfig {
   keepAliveOnMutation?: boolean;
 }
 
-export interface LockpickAgentsConfig {
+export interface AgentlocksAgentsConfig {
   enabled?: boolean;
   heading?: string;
 }
 
-export interface LockpickInitConfig {
+export interface AgentlocksInitConfig {
   updateAgents?: boolean;
   updateGitignore?: boolean;
   updatePackageScripts?: boolean;
 }
 
-export interface LockpickConfig {
+export interface AgentlocksConfig {
   projectName?: string;
   lockRoot?: string;
-  command?: LockpickCommandConfig;
-  defaults?: LockpickDefaultsConfig;
-  owner?: LockpickOwnerConfig;
+  command?: AgentlocksCommandConfig;
+  defaults?: AgentlocksDefaultsConfig;
+  owner?: AgentlocksOwnerConfig;
   liveness?: {
     adapter?: LivenessAdapterName;
   };
-  agents?: LockpickAgentsConfig;
-  init?: LockpickInitConfig;
+  agents?: AgentlocksAgentsConfig;
+  init?: AgentlocksInitConfig;
 }
 
 export interface ResolvedCommandConfig {
@@ -78,7 +79,7 @@ export interface ResolvedOwnerConfig {
   fallbackPrefix: string;
 }
 
-export interface ResolvedLockpickConfig {
+export interface ResolvedAgentlocksConfig {
   root: string;
   configPath: string;
   configFound: boolean;
@@ -86,42 +87,43 @@ export interface ResolvedLockpickConfig {
   lockRoot: string;
   lockRootRelative: string;
   command: ResolvedCommandConfig;
-  defaults: Required<LockpickDefaultsConfig>;
+  defaults: Required<AgentlocksDefaultsConfig>;
   owner: ResolvedOwnerConfig;
   liveness: {
     adapter: LivenessAdapterName;
   };
-  agents: Required<LockpickAgentsConfig>;
-  init: Required<LockpickInitConfig>;
+  agents: Required<AgentlocksAgentsConfig>;
+  init: Required<AgentlocksInitConfig>;
 }
 
-export interface LoadLockpickConfigOptions {
+export interface LoadAgentlocksConfigOptions {
   cwd?: string;
   root?: string;
   configPath?: string;
 }
 
-export function defineLockpickConfig(config: LockpickConfig): LockpickConfig {
+export function defineAgentlocksConfig(config: AgentlocksConfig): AgentlocksConfig {
   return config;
 }
 
-export async function loadLockpickConfig(
-  options: LoadLockpickConfigOptions = {},
-): Promise<ResolvedLockpickConfig> {
+export async function loadAgentlocksConfig(
+  options: LoadAgentlocksConfigOptions = {},
+): Promise<ResolvedAgentlocksConfig> {
   const root = path.resolve(options.root ?? (await findHostRoot(options.cwd ?? process.cwd())));
   const configPath = path.resolve(options.configPath ?? path.join(root, DEFAULT_CONFIG_FILE));
   const loaded = await loadConfigFile(configPath);
-  return resolveLockpickConfig(loaded.config, {
+  return resolveAgentlocksConfig(loaded.config, {
     root,
     configPath,
     configFound: loaded.found,
   });
 }
 
-export function resolveLockpickConfig(
-  config: LockpickConfig = {},
+export function resolveAgentlocksConfig(
+  config: AgentlocksConfig = {},
   source: { root: string; configPath?: string; configFound?: boolean },
-): ResolvedLockpickConfig {
+): ResolvedAgentlocksConfig {
+  validateAgentlocksConfig(config, source.configPath ?? "agentlocks config");
   const root = path.resolve(source.root);
   const projectName = config.projectName?.trim() || path.basename(root) || "project";
   const lockRootRelative = normalizeLockRoot(config.lockRoot ?? DEFAULT_LOCK_ROOT);
@@ -152,7 +154,7 @@ export function resolveLockpickConfig(
     liveness: { adapter: config.liveness?.adapter ?? "auto" },
     agents: {
       enabled: config.agents?.enabled ?? true,
-      heading: config.agents?.heading ?? "Lockpick coordination",
+      heading: config.agents?.heading ?? "Agentlocks coordination",
     },
     init: {
       updateAgents: config.init?.updateAgents ?? true,
@@ -172,13 +174,16 @@ export async function findHostRoot(cwd: string): Promise<string> {
   }
 }
 
-export function renderLockpickCommand(config: ResolvedLockpickConfig, args: string[] = []): string {
+export function renderAgentlocksCommand(
+  config: ResolvedAgentlocksConfig,
+  args: string[] = [],
+): string {
   return [...config.command.prefix, ...args].map(shellQuote).join(" ");
 }
 
 async function loadConfigFile(
   configPath: string,
-): Promise<{ found: boolean; config: LockpickConfig }> {
+): Promise<{ found: boolean; config: AgentlocksConfig }> {
   if (!(await pathExists(configPath))) return { found: false, config: {} };
   const stat = await fs.stat(configPath);
   const url = `${pathToFileURL(configPath).href}?mtime=${stat.mtimeMs}`;
@@ -188,28 +193,28 @@ async function loadConfigFile(
   };
   const value = module.default ?? module.config ?? {};
   if (!isObject(value)) {
-    throw new Error(`Lockpick config must export an object: ${configPath}`);
+    throw new Error(`Agentlocks config must export an object: ${configPath}`);
   }
-  return { found: true, config: value as LockpickConfig };
+  return { found: true, config: value as AgentlocksConfig };
 }
 
-function resolveOwnerConfig(config: LockpickOwnerConfig | undefined): ResolvedOwnerConfig {
+function resolveOwnerConfig(config: AgentlocksOwnerConfig | undefined): ResolvedOwnerConfig {
   const envKeys = [...(config?.envKeys ?? DEFAULT_AGENT_ENV_KEYS)];
   const harnesses = [...(config?.harnesses ?? DEFAULT_OWNER_HARNESSES)];
   return {
     envKeys: dedupeStrings(envKeys),
     harnesses: dedupeHarnesses(harnesses),
-    fallbackPrefix: config?.fallbackPrefix?.trim() || "lockpick",
+    fallbackPrefix: config?.fallbackPrefix?.trim() || "agentlocks",
   };
 }
 
-function resolveCommandPrefix(command: LockpickCommandConfig | undefined): string[] {
+function resolveCommandPrefix(command: AgentlocksCommandConfig | undefined): string[] {
   if (command?.prefix && command.prefix.length > 0) return command.prefix.map(requireCommandPart);
   if (command?.packageScript) {
     const runner = command.packageRunner?.trim() || "bun";
     return [runner, "run", "--silent", command.packageScript.trim(), "--"];
   }
-  return [command?.executable?.trim() || "lockpick"];
+  return [command?.executable?.trim() || "agentlocks"];
 }
 
 function normalizeLockRoot(lockRoot: string): string {
@@ -225,7 +230,7 @@ function normalizePositiveInteger(
 ): number {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved <= 0) {
-    throw new Error(`Lockpick ${label} must be a positive integer.`);
+    throw new Error(`Agentlocks ${label} must be a positive integer.`);
   }
   return resolved;
 }
@@ -237,14 +242,14 @@ function normalizeNonNegativeInteger(
 ): number {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved < 0) {
-    throw new Error(`Lockpick ${label} must be a non-negative integer.`);
+    throw new Error(`Agentlocks ${label} must be a non-negative integer.`);
   }
   return resolved;
 }
 
 function requireCommandPart(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) throw new Error("Lockpick command prefix entries must not be empty.");
+  if (!trimmed) throw new Error("Agentlocks command prefix entries must not be empty.");
   return trimmed;
 }
 

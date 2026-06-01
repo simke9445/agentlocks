@@ -1,6 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { loadLockpickConfig, type ResolvedLockpickConfig, renderLockpickCommand } from "../config";
+import {
+  loadAgentlocksConfig,
+  type ResolvedAgentlocksConfig,
+  renderAgentlocksCommand,
+} from "../config";
 import { type InitHarness, runInit } from "../init";
 import { pathExists } from "../io";
 import {
@@ -37,14 +41,14 @@ interface DoctorResult {
 
 export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
-  const config = await loadLockpickConfig();
+  const config = await loadAgentlocksConfig();
 
   const configCheck: DoctorCheck = {
     id: "config",
     status: config.configFound ? "ok" : "warn",
     message: config.configFound ? "config file found" : "config file missing; defaults are active",
   };
-  if (!config.configFound) configCheck.next = renderLockpickCommand(config, ["init", "--check"]);
+  if (!config.configFound) configCheck.next = renderAgentlocksCommand(config, ["init", "--check"]);
   checks.push(configCheck);
 
   checks.push(
@@ -77,8 +81,8 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
   if (initDrift.length > 0) {
     initCheck.next =
       initHarness === "claude-code"
-        ? renderLockpickCommand(config, ["init", "--harness", "claude-code"])
-        : renderLockpickCommand(config, ["init"]);
+        ? renderAgentlocksCommand(config, ["init", "--harness", "claude-code"])
+        : renderAgentlocksCommand(config, ["init"]);
   }
   if (options.verbose) initCheck.details = { changes: init.changes };
   checks.push(initCheck);
@@ -133,7 +137,7 @@ async function mutexCheck(mutexPath: string): Promise<DoctorCheck> {
         ageMs > REGISTRY_MUTEX_STALE_MS
           ? "registry mutex appears stale"
           : "registry mutex currently exists",
-      next: "retry the lock command; Lockpick reclaims stale mutexes automatically",
+      next: "retry the lock command; Agentlocks reclaims stale mutexes automatically",
     };
   } catch (error) {
     if (isNotFound(error)) {
@@ -151,11 +155,14 @@ async function mutexCheck(mutexPath: string): Promise<DoctorCheck> {
   }
 }
 
-async function harnessChecks(root: string, config: ResolvedLockpickConfig): Promise<DoctorCheck[]> {
+async function harnessChecks(
+  root: string,
+  config: ResolvedAgentlocksConfig,
+): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
   const claudeSession = process.env[CLAUDE_CODE_SESSION_ENV_KEY]?.trim();
   if (claudeSession) {
-    const hookPath = path.join(root, ".claude/hooks/lockpick-agent-env.mjs");
+    const hookPath = path.join(root, ".claude/hooks/agentlocks-agent-env.mjs");
     const hookExists = await pathExists(hookPath);
     const hookCheck: DoctorCheck = {
       id: "claude_agent_hook",
@@ -165,7 +172,7 @@ async function harnessChecks(root: string, config: ResolvedLockpickConfig): Prom
         : "Claude Code agent hook missing; subagents will share session-scope locks",
     };
     if (!hookExists) {
-      hookCheck.next = renderLockpickCommand(config, ["init", "--harness", "claude-code"]);
+      hookCheck.next = renderAgentlocksCommand(config, ["init", "--harness", "claude-code"]);
     }
     checks.push(hookCheck);
 
@@ -185,7 +192,7 @@ async function harnessChecks(root: string, config: ResolvedLockpickConfig): Prom
         : "agent identity is harness-scoped or explicitly configured",
     };
     if (sessionScope) {
-      agentScopeCheck.next = renderLockpickCommand(config, ["init", "--harness", "claude-code"]);
+      agentScopeCheck.next = renderAgentlocksCommand(config, ["init", "--harness", "claude-code"]);
     }
     checks.push(agentScopeCheck);
   }

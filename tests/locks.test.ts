@@ -10,7 +10,7 @@ import {
   lockOwnerSource,
   normalizeLockResources,
   renderLockResult,
-  resolveLockpickConfig,
+  resolveAgentlocksConfig,
   resourcesConflict,
 } from "../src/index";
 
@@ -72,7 +72,7 @@ test("detects exact, path-glob, conservative glob, and git-index conflicts", () 
   ).toBe(false);
 });
 
-test("acquire defaults to .lockpick/locks and reports overlapping conflicts", async () => {
+test("acquire defaults to .agentlocks/locks and reports overlapping conflicts", async () => {
   await withWorkspace(async (workspace) => {
     await mkdir(path.join(workspace, "src", "locks"), { recursive: true });
     await writeFile(path.join(workspace, "src", "locks", "registry.ts"), "export {};\n", "utf8");
@@ -85,7 +85,9 @@ test("acquire defaults to .lockpick/locks and reports overlapping conflicts", as
     });
     expect(acquired.exitCode).toBe(0);
     expect(acquired.lock?.resources).toEqual([{ kind: "path", value: "src/locks/registry.ts" }]);
-    await expect(stat(path.join(workspace, ".lockpick", "locks", "active"))).resolves.toBeTruthy();
+    await expect(
+      stat(path.join(workspace, ".agentlocks", "locks", "active")),
+    ).resolves.toBeTruthy();
 
     const conflict = await registry.acquire({
       globs: ["src/**/*.ts"],
@@ -256,13 +258,13 @@ test("owner detection prefers harness identity before explicit, env, and fallbac
 
     const hookMain = new FileLockRegistry({
       cwd: workspace,
-      env: { LOCKPICK_HARNESS_AGENT_ID: "claude-code:claude-session:main" },
+      env: { AGENTLOCKS_HARNESS_AGENT_ID: "claude-code:claude-session:main" },
     }).identify();
     expect(hookMain.owner ? lockOwnerAgentId(hookMain.owner) : null).toBe(
       "claude-code:claude-session:main",
     );
     expect(hookMain.owner ? lockOwnerSource(hookMain.owner) : null).toBe(
-      "harness:lockpick:LOCKPICK_HARNESS_AGENT_ID",
+      "harness:agentlocks:AGENTLOCKS_HARNESS_AGENT_ID",
     );
     expect(hookMain.owner?.harness).toBe("claude-code");
     expect(hookMain.owner?.harnessScope).toBe("main");
@@ -270,7 +272,7 @@ test("owner detection prefers harness identity before explicit, env, and fallbac
 
     const hookAgent = new FileLockRegistry({
       cwd: workspace,
-      env: { LOCKPICK_HARNESS_AGENT_ID: "claude-code:claude-session:agent:agent-1" },
+      env: { AGENTLOCKS_HARNESS_AGENT_ID: "claude-code:claude-session:agent:agent-1" },
     }).identify();
     expect(hookAgent.owner ? lockOwnerAgentId(hookAgent.owner) : null).toBe(
       "claude-code:claude-session:agent:agent-1",
@@ -280,18 +282,18 @@ test("owner detection prefers harness identity before explicit, env, and fallbac
     expect(hookAgent.owner?.harnessAgentId).toBe("agent-1");
 
     const fallback = new FileLockRegistry({ cwd: workspace, env: {} }).identify();
-    expect(fallback.owner ? lockOwnerAgentId(fallback.owner).startsWith("lockpick:") : false).toBe(
-      true,
-    );
+    expect(
+      fallback.owner ? lockOwnerAgentId(fallback.owner).startsWith("agentlocks:") : false,
+    ).toBe(true);
     expect(fallback.owner ? lockOwnerSource(fallback.owner) : null).toBe("fallback");
-    expect(fallback.owner?.harness).toBe("lockpick");
+    expect(fallback.owner?.harness).toBe("agentlocks");
     expect(fallback.owner?.harnessScope).toBe("fallback");
   });
 });
 
-test("lock command output is compact by default and renders lockpick commands", async () => {
+test("lock command output is compact by default and renders agentlocks commands", async () => {
   await withWorkspace(async (workspace) => {
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const acquired = await executeLockCommand(
       {
         name: "acquire",
@@ -325,13 +327,13 @@ test("lock command output is compact by default and renders lockpick commands", 
     expect((acquired.json as { lock?: unknown }).lock).toBeUndefined();
     expect(acquired.text).toContain("lock acquired:");
     expect(acquired.text).not.toContain("resources:");
-    expect(renderLockResult(conflict, false, config)).toContain("lockpick prune, then retry");
+    expect(renderLockResult(conflict, false, config)).toContain("agentlocks prune, then retry");
   });
 });
 
 test("lock command supports compact ids and batched refresh and release", async () => {
   await withWorkspace(async (workspace) => {
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const first = await executeLockCommand(
       {
         name: "acquire",
@@ -392,7 +394,7 @@ test("lock command supports compact ids and batched refresh and release", async 
 test("prune id-only returns pruned lock ids", async () => {
   await withWorkspace(async (workspace) => {
     let now = new Date("2026-05-04T10:00:00Z");
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const registryOptions = {
       now: () => now,
       sessionProbe: () => ({ status: "dead" as const, evidence: "fixture dead" }),
@@ -430,7 +432,7 @@ test("prune id-only returns pruned lock ids", async () => {
 test("prune dry-run reports reclaimable locks without deleting", async () => {
   await withWorkspace(async (workspace) => {
     let now = new Date("2026-05-04T10:00:00Z");
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const registryOptions = {
       now: () => now,
       sessionProbe: () => ({ status: "dead" as const, evidence: "fixture dead" }),
@@ -637,7 +639,7 @@ test("board groups active locks by agent with lease state and next step", async 
 test("status --json carries each lock's classification", async () => {
   await withWorkspace(async (workspace) => {
     let now = new Date("2026-05-04T10:00:00Z");
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const registryOptions = {
       now: () => now,
       sessionProbe: () => ({ status: "dead" as const, evidence: "dead" }),
@@ -671,7 +673,7 @@ test("status --json carries each lock's classification", async () => {
 test("conflict json carries ahead_of and an honest retry-after floor", async () => {
   await withWorkspace(async (workspace) => {
     const now = new Date("2026-05-04T10:00:00Z");
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const registryOptions = {
       now: () => now,
       sessionProbe: () => ({ status: "unknown" as const, evidence: "u" }),
@@ -710,7 +712,7 @@ test("conflict json carries ahead_of and an honest retry-after floor", async () 
 test("multi-incumbent conflict render leads with the binding constraint", async () => {
   await withWorkspace(async (workspace) => {
     let now = new Date("2026-05-04T10:00:00Z");
-    const config = resolveLockpickConfig({}, { root: workspace });
+    const config = resolveAgentlocksConfig({}, { root: workspace });
     const registry = testRegistry(
       workspace,
       () => now,
@@ -770,7 +772,7 @@ function testRegistry(
 }
 
 async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-locks-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-locks-"));
   try {
     await fn(workspace);
   } finally {

@@ -11,7 +11,7 @@ export const REGISTRY_MUTEX_STALE_MS = 30_000;
 export const GIT_INDEX_RESOURCE = "@git/index";
 
 export type LockResourceKind = "path" | "glob" | "git";
-export type LockOwnerHarness = "codex" | "claude-code" | "lockpick";
+export type LockOwnerHarness = "codex" | "claude-code" | "agentlocks";
 export type LockOwnerHarnessScope = "agent" | "main" | "session" | "fallback";
 
 export interface LockResource {
@@ -141,7 +141,7 @@ export interface GitVerifyRename {
   covered: boolean;
 }
 
-/** The `lockpick git verify` advisory report (GIT_HOOK_SPEC §3.8). */
+/** The `agentlocks git verify` advisory report (GIT_HOOK_SPEC §3.8). */
 export interface GitVerifyReport {
   ok: boolean;
   state: GitVerifyState;

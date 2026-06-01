@@ -1,11 +1,11 @@
 # Repository instructions for agents
 
-Lockpick is a standalone Bun/TypeScript advisory locking CLI and library. Keep defaults generic:
+Agentlocks is a standalone Bun/TypeScript advisory locking CLI and library. Keep defaults generic:
 do not add prompt-optimization behavior, command aliases, or repository-specific defaults.
 
 ## Product maturity policy
 
-Lockpick is not live yet. Do not add compatibility layers, migration paths, deprecated aliases, or
+Agentlocks is not live yet. Do not add compatibility layers, migration paths, deprecated aliases, or
 fallback behavior for previous internal layouts, schemas, CLI flags, actor outputs, or report
 formats. When a contract changes, update the implementation, tests, docs, skill instructions, and
 wiki in place to the new contract.
@@ -26,37 +26,37 @@ obscure packages to reduce Shai-Hulud-style supply-chain risk.
 
 ## File locking policy
 
-This repository uses Lockpick advisory locks for multi-agent editing. Before modifying tracked or
+This repository uses Agentlocks advisory locks for multi-agent editing. Before modifying tracked or
 untracked repository files, acquire a current lock for the exact repo-relative paths or narrowest
 globs you expect to mutate.
 
 ```bash
-bun run --silent lockpick -- acquire <paths...> --reason "<intent>" --id-only
+bun run --silent agentlocks -- acquire <paths...> --reason "<intent>" --id-only
 ```
 
 If new files become necessary, expand the existing lock before touching them:
 
 ```bash
-bun run --silent lockpick -- expand --lock <lock_id> <paths...>
+bun run --silent agentlocks -- expand --lock <lock_id> <paths...>
 ```
 
 Refresh held locks before edit batches, after long-running commands, and before staging:
 
 ```bash
-bun run --silent lockpick -- refresh <lock_id>
+bun run --silent agentlocks -- refresh <lock_id>
 ```
 
 Before staging or committing, refresh held file locks and acquire the synthetic Git-index lock:
 
 ```bash
-bun run --silent lockpick -- git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
+bun run --silent agentlocks -- git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
 ```
 
 Stage only paths covered by held locks. Do not use broad staging commands unless every staged path
 is covered. Release locks promptly after the commit or when abandoning work:
 
 ```bash
-bun run --silent lockpick -- git end <git_lock_id> --release-lock <lock_id>
+bun run --silent agentlocks -- git end <git_lock_id> --release-lock <lock_id>
 ```
 
 ## Development

@@ -47,7 +47,7 @@ async function runScoped(
   cwd: string,
 ): Promise<void> {
   if (command.argv.length === 0) {
-    console.error(`lockpick error: ${command.name} requires a command after --`);
+    console.error(`agentlocks error: ${command.name} requires a command after --`);
     process.exitCode = 2;
     return;
   }
@@ -191,7 +191,7 @@ async function runCommit(
   }
 
   if (fenceLost) {
-    console.error(`lockpick: ${fenceLost}`);
+    console.error(`agentlocks: ${fenceLost}`);
     process.exitCode = 3;
     return;
   }

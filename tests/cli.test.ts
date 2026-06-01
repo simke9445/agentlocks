@@ -212,7 +212,7 @@ test("unknown flag text errors suggest an exact corrected command", async () => 
   expect(result.code).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("unknown option '--jason'");
-  expect(result.stderr).toContain("next: lockpick status --json");
+  expect(result.stderr).toContain("next: agentlocks status --json");
 });
 
 test("unknown flag json errors include suggestion details", async () => {
@@ -229,7 +229,7 @@ test("unknown flag json errors include suggestion details", async () => {
   expect(payload.details?.suggestion).toEqual({
     replace: "--jason",
     with: "--json",
-    command: "lockpick status --json",
+    command: "agentlocks status --json",
   });
 });
 
@@ -246,7 +246,7 @@ test("unknown command json errors suggest an exact corrected command", async () 
   expect(payload.details?.suggestion).toEqual({
     replace: "stats",
     with: "status",
-    command: "lockpick status --json",
+    command: "agentlocks status --json",
   });
 });
 
@@ -255,7 +255,7 @@ test("unknown command plain errors suggest an exact corrected command", async ()
   expect(result.code).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("unknown command 'capabilties'");
-  expect(result.stderr).toContain("next: lockpick capabilities");
+  expect(result.stderr).toContain("next: agentlocks capabilities");
 });
 
 test("nested unknown command errors suggest exact corrected commands", async () => {
@@ -268,13 +268,13 @@ test("nested unknown command errors suggest exact corrected commands", async () 
   expect(payload.details?.suggestion).toEqual({
     replace: "begn",
     with: "begin",
-    command: "lockpick git begin --reason commit --json",
+    command: "agentlocks git begin --reason commit --json",
   });
 
   const text = await runCli(["robot-docs", "gudie"]);
   expect(text.code).toBe(1);
   expect(text.stdout).toBe("");
-  expect(text.stderr).toContain("next: lockpick robot-docs guide");
+  expect(text.stderr).toContain("next: agentlocks robot-docs guide");
 });
 
 test("identify rejects id-only with a precise replacement command", async () => {
@@ -286,16 +286,16 @@ test("identify rejects id-only with a precise replacement command", async () => 
     ok: false,
     code: "unsupported_output_option",
   });
-  expect(payload.message).toContain("lockpick identify --json");
+  expect(payload.message).toContain("agentlocks identify --json");
 });
 
 test("non-json conflict writes data to stdout and the next step to stderr", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-conflict-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-conflict-"));
   const env = {
     CLAUDE_CODE_SESSION_ID: "",
     CODEX_THREAD_ID: "",
-    LOCKPICK_HARNESS_AGENT_ID: "",
-    LOCKPICK_AGENT_ID: "",
+    AGENTLOCKS_HARNESS_AGENT_ID: "",
+    AGENTLOCKS_AGENT_ID: "",
   };
   try {
     await runCli(
@@ -347,7 +347,7 @@ test("capabilities json is compact and machine-readable", async () => {
 
   expect(payload.kind).toBe("capabilities");
   expect(payload.schema_version).toBe(1);
-  expect(payload.version).toBe("0.4.1");
+  expect(payload.version).toBe("0.5.0");
   const acquire = payload.commands?.find((command) => command.name === "acquire");
   expect(acquire).toMatchObject({
     mutates: true,
@@ -379,16 +379,16 @@ test("capabilities json is compact and machine-readable", async () => {
     name: "lock_conflict",
     meaning: "Lock conflict or ownership failure.",
   });
-  expect(payload.env?.map((entry) => entry.name)).toContain("LOCKPICK_AGENT_ID");
-  expect(payload.env?.map((entry) => entry.name)).toContain("LOCKPICK_HARNESS_AGENT_ID");
+  expect(payload.env?.map((entry) => entry.name)).toContain("AGENTLOCKS_AGENT_ID");
+  expect(payload.env?.map((entry) => entry.name)).toContain("AGENTLOCKS_HARNESS_AGENT_ID");
   expect(payload.env?.map((entry) => entry.name)).toContain("CODEX_THREAD_ID");
   expect(payload.env?.map((entry) => entry.name)).toContain("CLAUDE_CODE_SESSION_ID");
   expect(payload.owner_detection?.order).toEqual([
-    "LOCKPICK_HARNESS_AGENT_ID",
+    "AGENTLOCKS_HARNESS_AGENT_ID",
     "CODEX_THREAD_ID",
     "CLAUDE_CODE_SESSION_ID",
     "--agent-id",
-    "LOCKPICK_AGENT_ID",
+    "AGENTLOCKS_AGENT_ID",
     "fallback",
   ]);
   expect(payload.owner_detection?.harnesses).toEqual(
@@ -409,12 +409,12 @@ test("robot docs guide matches golden output", async () => {
 });
 
 async function activeLockCount(workspace: string): Promise<number> {
-  const entries = await readdir(path.join(workspace, ".lockpick/locks/active")).catch(() => []);
+  const entries = await readdir(path.join(workspace, ".agentlocks/locks/active")).catch(() => []);
   return entries.filter((entry) => entry.endsWith(".json")).length;
 }
 
 test("run acquires, executes the wrapped command, and releases the lock", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-run-"));
   try {
     const result = await runCli(
       ["run", "app.ts", "--reason", "do work", "--", "echo", "CHILD-RAN"],
@@ -429,7 +429,7 @@ test("run acquires, executes the wrapped command, and releases the lock", async 
 });
 
 test("edit keeps the lock and prints its id", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-edit-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-edit-"));
   try {
     const result = await runCli(
       ["edit", "app.ts", "--reason", "do work", "--", "echo", "EDITED"],
@@ -445,7 +445,7 @@ test("edit keeps the lock and prints its id", async () => {
 });
 
 test("run without a -- command exits with a usage error", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-err-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-run-err-"));
   try {
     const result = await runCli(["run", "app.ts", "--reason", "do work"], workspace);
     expect(result.code).toBe(2);
@@ -457,8 +457,8 @@ test("run without a -- command exits with a usage error", async () => {
 });
 
 test("run on a conflicting path exits 3 without executing the command", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-run-conflict-"));
-  const env = { CLAUDE_CODE_SESSION_ID: "", CODEX_THREAD_ID: "", LOCKPICK_HARNESS_AGENT_ID: "" };
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-run-conflict-"));
+  const env = { CLAUDE_CODE_SESSION_ID: "", CODEX_THREAD_ID: "", AGENTLOCKS_HARNESS_AGENT_ID: "" };
   try {
     await runCli(["acquire", "app.ts", "--reason", "hold", "--agent-id", "holder"], workspace, env);
     const result = await runCli(
@@ -475,7 +475,7 @@ test("run on a conflicting path exits 3 without executing the command", async ()
 });
 
 test("commit stages and commits only the locked paths, then releases", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-commit-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-commit-"));
   try {
     await execFileAsync("git", ["init", "-q"], { cwd: workspace });
     await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: workspace });
@@ -503,7 +503,7 @@ test("commit stages and commits only the locked paths, then releases", async () 
 });
 
 test("init check json is compact by default with verbose full output", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-init-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-init-"));
   try {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
     const compact = await runCli(["init", "--check", "--json"], workspace);
@@ -532,10 +532,14 @@ test("init check json is compact by default with verbose full output", async () 
     expect(payload.instructions_path).toBe("AGENTS.md");
     expect(payload.change_count).toBe(payload.changes?.length);
     expect(payload.changes?.[0]).toEqual({
-      path: ".lockpick/locks",
+      path: ".agentlocks/locks",
       action: "would_create",
     });
-    expect(payload.recommended_scripts).toEqual(["lockpick", "lockpick:init", "lockpick:status"]);
+    expect(payload.recommended_scripts).toEqual([
+      "agentlocks",
+      "agentlocks:init",
+      "agentlocks:status",
+    ]);
     expect(payload.root).toBeUndefined();
 
     const verbose = await runCli(["init", "--check", "--json", "--verbose"], workspace);
@@ -550,7 +554,7 @@ test("init check json is compact by default with verbose full output", async () 
 });
 
 test("init claude-code harness json targets AGENTS instructions", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-init-claude-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-init-claude-"));
   try {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
     const result = await runCli(
@@ -594,7 +598,7 @@ test("init rejects unsupported harness values", async () => {
 });
 
 test("doctor json reports read-only health checks", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-doctor-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-doctor-"));
   try {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
     const result = await runCli(["doctor", "--json"], workspace);
@@ -626,15 +630,15 @@ test("doctor json reports read-only health checks", async () => {
 });
 
 test("doctor reports Claude Code hook and session-scope agent diagnostics", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-cli-doctor-claude-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-doctor-claude-"));
   try {
     await writeFile(path.join(workspace, "package.json"), '{"scripts":{}}\n', "utf8");
     const result = await runCli(["doctor", "--json", "--verbose"], workspace, {
       CLAUDE_CODE_SESSION_ID: "claude-session",
       CODEX_THREAD_ID: "",
       CODEX_CI: "",
-      LOCKPICK_AGENT_ID: "",
-      LOCKPICK_HARNESS_AGENT_ID: "",
+      AGENTLOCKS_AGENT_ID: "",
+      AGENTLOCKS_HARNESS_AGENT_ID: "",
     });
     expect(result.code).toBe(1);
     expect(result.stderr).toBe("");
@@ -653,7 +657,7 @@ test("doctor reports Claude Code hook and session-scope agent diagnostics", asyn
     );
     const initChanges = payload.checks?.find((check) => check.id === "init")?.details?.changes;
     expect(initChanges?.map((change) => change.path)).toEqual(
-      expect.arrayContaining([".claude/hooks/lockpick-agent-env.mjs", ".claude/settings.json"]),
+      expect.arrayContaining([".claude/hooks/agentlocks-agent-env.mjs", ".claude/settings.json"]),
     );
 
     await runCli(["init", "--harness", "claude-code"], workspace);
@@ -661,8 +665,8 @@ test("doctor reports Claude Code hook and session-scope agent diagnostics", asyn
       CLAUDE_CODE_SESSION_ID: "claude-session",
       CODEX_THREAD_ID: "",
       CODEX_CI: "",
-      LOCKPICK_AGENT_ID: "",
-      LOCKPICK_HARNESS_AGENT_ID: "claude-code:claude-session:main",
+      AGENTLOCKS_AGENT_ID: "",
+      AGENTLOCKS_HARNESS_AGENT_ID: "claude-code:claude-session:main",
     });
     const afterPayload = JSON.parse(afterInit.stdout) as {
       checks?: Array<{ id?: unknown; status?: unknown }>;

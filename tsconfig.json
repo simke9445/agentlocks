@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "outDir": "dist"
   },
-  "include": ["bin/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "lockpick.config.ts"]
+  "include": ["bin/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "agentlocks.config.ts"]
 }

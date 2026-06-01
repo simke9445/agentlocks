@@ -5,7 +5,7 @@
       "**",
       "!node_modules",
       "!bun.lock",
-      "!.lockpick",
+      "!.agentlocks",
       "!dist",
       "!out",
       "!tmp",

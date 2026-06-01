@@ -97,7 +97,7 @@ export class FileLockRegistry {
     this.cwd = path.resolve(options.cwd ?? process.cwd());
     this.lockRoot = path.isAbsolute(options.lockRoot ?? "")
       ? (options.lockRoot as string)
-      : path.join(this.cwd, options.lockRoot ?? ".lockpick/locks");
+      : path.join(this.cwd, options.lockRoot ?? ".agentlocks/locks");
     this.activeDir = path.join(this.lockRoot, "active");
     this.mutexDir = path.join(this.lockRoot, ".mutex");
     this.eventsPath = path.join(this.lockRoot, "events.jsonl");
@@ -106,7 +106,7 @@ export class FileLockRegistry {
     this.env = options.env ?? process.env;
     this.ownerEnvKeys = options.ownerEnvKeys;
     this.ownerHarnesses = options.ownerHarnesses;
-    this.fallbackOwnerPrefix = options.fallbackOwnerPrefix ?? "lockpick";
+    this.fallbackOwnerPrefix = options.fallbackOwnerPrefix ?? "agentlocks";
     this.defaultTtlMs = options.defaultTtlMs ?? DEFAULT_LOCK_TTL_MS;
     this.maxTtlMs = options.maxTtlMs ?? MAX_LOCK_TTL_MS;
     this.unknownLivenessGraceMs =
@@ -587,7 +587,7 @@ export class FileLockRegistry {
     if (!isReliableOwnerIdentity(caller)) {
       throw new LockCommandError(
         `--mine needs a stable identity but resolved '${lockOwnerAgentId(caller)}' (${caller.source}). ` +
-          `Set LOCKPICK_HARNESS_AGENT_ID, pass --agent-id, or set LOCKPICK_AGENT_ID.`,
+          `Set AGENTLOCKS_HARNESS_AGENT_ID, pass --agent-id, or set AGENTLOCKS_AGENT_ID.`,
         2,
       );
     }

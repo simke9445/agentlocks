@@ -1,42 +1,42 @@
-# Lockpick
+# Agentlocks
 
 Local advisory locks for multi-agent coding in one Git worktree.
 
 <p align="center">
-  <img src="./assets/lockpick-heading.png" alt="Lockpick" width="960">
+  <img src="./assets/agentlocks-heading.png" alt="Agentlocks" width="960">
 </p>
 
-![Version 0.4.0](https://img.shields.io/badge/version-0.4.0-blue)
+![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)
 ![Runtime Bun >= 1.2](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black)
 ![Language TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Status pre-release](https://img.shields.io/badge/status-pre--release-orange)
 
-Lockpick is an agent-native coordination tool for shared coding worktrees.
+Agentlocks is an agent-native coordination tool for shared coding worktrees.
 
 - Detects the active agent and records lock ownership under its agent id.
 - Reserves exact files, refreshes short leases, and recovers stale locks when safe.
 - Serializes `git add` and `git commit` with a synthetic `@git/index` lock.
 - Works with Codex and Claude Code, including subagents.
 
-State is just files under `.lockpick/locks`: no daemon, database, hosted service, or
+State is just files under `.agentlocks/locks`: no daemon, database, hosted service, or
 repository-specific prompt behavior.
 
 ## Setup And Usage
 
-Lockpick is meant to be installed once as a global CLI, then run as `lockpick` inside the
+Agentlocks is meant to be installed once as a global CLI, then run as `agentlocks` inside the
 repositories you want to coordinate. Bun `>=1.2` must be available at runtime.
 
 ```bash
-bun install -g @simke9445/lockpick
-lockpick --help
+bun install -g agentlocks
+agentlocks --help
 ```
 
 If you prefer npm for global packages:
 
 ```bash
-npm install -g @simke9445/lockpick
-lockpick --help
+npm install -g agentlocks
+agentlocks --help
 ```
 
 If the command is not found, add your package manager's global binary directory to `PATH`.
@@ -46,40 +46,40 @@ the agent identity; do not set an agent id yourself for normal use.
 
 ```bash
 cd ../your-repo
-lockpick init --check --json || true
-lockpick init
+agentlocks init --check --json || true
+agentlocks init
 
-lockpick identify --json
-file_lock="$(lockpick acquire README.md --reason "edit README" --id-only)"
-lockpick status --json
-lockpick release "$file_lock" --id-only
+agentlocks identify --json
+file_lock="$(agentlocks acquire README.md --reason "edit README" --id-only)"
+agentlocks status --json
+agentlocks release "$file_lock" --id-only
 ```
 
 `init` writes the host-repo support files. `acquire`, `status`, and `release` prove the core
-lock loop without depending on the Lockpick checkout path.
+lock loop without depending on the Agentlocks checkout path.
 
 ## TL;DR
 
 Concurrent repository work usually fails in three places: two workers edit the same file, a stale
 "I am working on this" note never expires, or someone stages a shared Git index while another
-worker is preparing a commit. Lockpick makes those coordination points explicit and scriptable.
+worker is preparing a commit. Agentlocks makes those coordination points explicit and scriptable.
 
-| Need | Lockpick behavior | Proof surface |
+| Need | Agentlocks behavior | Proof surface |
 | --- | --- | --- |
-| Reserve files before editing | `acquire`, `expand`, `refresh`, `release` over repo-relative paths and globs | `lockpick capabilities --json` |
+| Reserve files before editing | `acquire`, `expand`, `refresh`, `release` over repo-relative paths and globs | `agentlocks capabilities --json` |
 | Avoid shared Git-index races | `git begin` acquires `@git/index`; `git end` releases it and can release file locks | `src/locks/types.ts`, `tests/locks.test.ts` |
-| Recover stale local locks | TTLs, liveness classification, `prune --dry-run`, then `prune` | `lockpick prune --dry-run --json` |
+| Recover stale local locks | TTLs, liveness classification, `prune --dry-run`, then `prune` | `agentlocks prune --dry-run --json` |
 | Keep automation parseable | `--json`, `--id-only`, compact error payloads, documented exit codes | `tests/cli.test.ts` |
-| Init repo guidance | Marked block in `AGENTS.md` (read by Codex and Claude Code) | `lockpick init --check --json` |
-| Audit health | `doctor --json` checks config, lock dirs, mutex state, and init drift | `lockpick doctor --json` |
+| Init repo guidance | Marked block in `AGENTS.md` (read by Codex and Claude Code) | `agentlocks init --check --json` |
+| Audit health | `doctor --json` checks config, lock dirs, mutex state, and init drift | `agentlocks doctor --json` |
 
-Lockpick is advisory. It coordinates agents that agree to use it; it does not stop an editor, shell
+Agentlocks is advisory. It coordinates agents that agree to use it; it does not stop an editor, shell
 command, or Git operation that ignores the protocol.
 
 ## Quick Demo
 
 This demo is meant to run inside Codex or Claude Code. The active harness identity is detected
-automatically, including Claude Code subagents when `lockpick init --harness claude-code` has
+automatically, including Claude Code subagents when `agentlocks init --harness claude-code` has
 installed the project hook.
 
 ```bash
@@ -92,33 +92,33 @@ printf '# Demo host repo\n' > AGENTS.md
 printf '{"scripts":{}}\n' > package.json
 
 # Expected to exit 1 when init drift is found; it does not write files.
-lockpick init --check --json || true
-lockpick init
+agentlocks init --check --json || true
+agentlocks init
 
-lockpick identify --json
-file_lock="$(lockpick acquire app.ts --reason "edit app" --id-only)"
-lockpick expand --lock "$file_lock" README.md --id-only
-lockpick refresh "$file_lock" --id-only
+agentlocks identify --json
+file_lock="$(agentlocks acquire app.ts --reason "edit app" --id-only)"
+agentlocks expand --lock "$file_lock" README.md --id-only
+agentlocks refresh "$file_lock" --id-only
 
-git_lock="$(lockpick git begin --refresh-lock "$file_lock" --reason "commit demo" --id-only)"
-lockpick status --json
-lockpick git end "$git_lock" --release-lock "$file_lock" --id-only
+git_lock="$(agentlocks git begin --refresh-lock "$file_lock" --reason "commit demo" --id-only)"
+agentlocks status --json
+agentlocks git end "$git_lock" --release-lock "$file_lock" --id-only
 
-lockpick prune --dry-run --json
-lockpick doctor --json
+agentlocks prune --dry-run --json
+agentlocks doctor --json
 ```
 
 Expected shape:
 
 ```text
-identify shows a harness source such as CODEX_THREAD_ID or LOCKPICK_HARNESS_AGENT_ID.
+identify shows a harness source such as CODEX_THREAD_ID or AGENTLOCKS_HARNESS_AGENT_ID.
 status shows two locks while the file lock and @git/index lock are held.
 git end prints the released git lock id and file lock id.
 prune --dry-run reports pruned_count 0 in a fresh repo.
 doctor reports ok true after init completes.
 ```
 
-## Why Lockpick
+## Why Agentlocks
 
 | Approach | Works well for | Where it falls short for shared worktrees |
 | --- | --- | --- |
@@ -127,45 +127,45 @@ doctor reports ok true after init completes.
 | `flock` | Process-level critical sections on one machine | Not a repo resource registry; no path/glob inventory, owner metadata, install guidance, or agent docs |
 | Git-native hooks (`pre-commit`) | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers, and a single `core.hooksPath` collides with husky/lefthook |
 | Hosted lock service | Cross-machine coordination | Requires a service, credentials, network access, and operational ownership |
-| Lockpick | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call — installs no git hook and never reconfigures your git |
+| Agentlocks | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call — installs no git hook and never reconfigures your git |
 
 ## Install Details
 
-Lockpick is a Bun/TypeScript CLI. Bun `>=1.2` is required even when the package is installed through
+Agentlocks is a Bun/TypeScript CLI. Bun `>=1.2` is required even when the package is installed through
 npm, because the executable uses `#!/usr/bin/env bun`.
 
 ### Global Install
 
 ```bash
-bun install -g @simke9445/lockpick
-lockpick --help
+bun install -g agentlocks
+agentlocks --help
 ```
 
 ```bash
-npm install -g @simke9445/lockpick
-lockpick --help
+npm install -g agentlocks
+agentlocks --help
 ```
 
-Use one global install method, not both. After installation, run `lockpick init` from each host
+Use one global install method, not both. After installation, run `agentlocks init` from each host
 repository that should use advisory locking.
 
 ### Host Init Behavior
 
-`lockpick init` is idempotent. It can create or update:
+`agentlocks init` is idempotent. It can create or update:
 
 | Path | Behavior |
 | --- | --- |
-| `.lockpick/locks/active/` | Local active lock records |
-| `lockpick.config.ts` | Default config when missing; existing config is preserved |
-| `AGENTS.md` | Marked Lockpick instructions block (read by Codex and Claude Code) |
+| `.agentlocks/locks/active/` | Local active lock records |
+| `agentlocks.config.ts` | Default config when missing; existing config is preserved |
+| `AGENTS.md` | Marked Agentlocks instructions block (read by Codex and Claude Code) |
 | `.claude/settings.json` | Adds a Claude Code `PreToolUse` hook when `--harness claude-code` is used |
-| `.claude/hooks/lockpick-agent-env.mjs` | Per-Bash-call agent id hook; **by default also runs `git verify` before a `git commit` tool-call** (one script, advisory; pass `--no-commit-hook` for the id-injection-only body) |
-| `.codex/hooks.json` + `.codex/hooks/lockpick-git-verify.mjs` | Codex `PreToolUse` commit-hook backstop when `--harness codex` is used (project-local hooks need trust before they run) |
-| `.gitignore` | Adds `.lockpick/` |
+| `.claude/hooks/agentlocks-agent-env.mjs` | Per-Bash-call agent id hook; **by default also runs `git verify` before a `git commit` tool-call** (one script, advisory; pass `--no-commit-hook` for the id-injection-only body) |
+| `.codex/hooks.json` + `.codex/hooks/agentlocks-git-verify.mjs` | Codex `PreToolUse` commit-hook backstop when `--harness codex` is used (project-local hooks need trust before they run) |
+| `.gitignore` | Adds `.agentlocks/` |
 | `package.json` | Adds missing recommended scripts when a package file exists |
 
 The commit-hook backstop is advisory: it surfaces staged-but-unlocked paths before a `git commit` tool-call and
-**never blocks the commit**. It is installed by default; `lockpick init --no-commit-hook` keeps the original
+**never blocks the commit**. It is installed by default; `agentlocks init --no-commit-hook` keeps the original
 id-injection-only Claude hook and skips the Codex hook.
 
 Recommended host scripts inserted when absent:
@@ -173,9 +173,9 @@ Recommended host scripts inserted when absent:
 ```json
 {
   "scripts": {
-    "lockpick": "lockpick",
-    "lockpick:status": "lockpick status",
-    "lockpick:init": "lockpick init"
+    "agentlocks": "agentlocks",
+    "agentlocks:status": "agentlocks status",
+    "agentlocks:init": "agentlocks init"
   }
 }
 ```
@@ -188,63 +188,63 @@ and a supported agent harness. Codex and Claude Code identity is automatic.
 1. Initialize the host repo (writes the `AGENTS.md` instructions block).
 
    ```bash
-   lockpick init --check --json || true
-   lockpick init
+   agentlocks init --check --json || true
+   agentlocks init
 
    # Claude Code: also install the .claude PreToolUse hooks.
-   lockpick init --check --harness claude-code --json || true
-   lockpick init --harness claude-code
+   agentlocks init --check --harness claude-code --json || true
+   agentlocks init --harness claude-code
    ```
 
 2. Inspect the detected agent id.
 
    ```bash
-   lockpick identify --json
+   agentlocks identify --json
    ```
 
 3. Acquire the narrowest lock before editing.
 
    ```bash
-   lockpick acquire src/index.ts tests/cli.test.ts --reason "change CLI dispatch" --id-only
+   agentlocks acquire src/index.ts tests/cli.test.ts --reason "change CLI dispatch" --id-only
    ```
 
 4. Expand before touching another file.
 
    ```bash
-   lockpick expand --lock <lock_id> src/config.ts --id-only
+   agentlocks expand --lock <lock_id> src/config.ts --id-only
    ```
 
 5. Refresh before long edit batches, after tests, and before staging.
 
    ```bash
-   lockpick refresh <lock_id> --id-only
+   agentlocks refresh <lock_id> --id-only
    ```
 
 6. Coordinate the shared Git index. `git begin --id-only` prints two lines: the git lock id, then a
    fence token that `git end` re-checks (it aborts with exit 3 if the lease was reclaimed mid-commit).
 
    ```bash
-   { read git_lock; read git_token; } < <(lockpick git begin --refresh-lock <lock_id> --reason "commit Lockpick change" --id-only)
+   { read git_lock; read git_token; } < <(agentlocks git begin --refresh-lock <lock_id> --reason "commit Agentlocks change" --id-only)
    git add <locked_paths>
    git commit
-   lockpick git end "$git_lock" --git-token "$git_token" --release-lock <lock_id> --id-only
+   agentlocks git end "$git_lock" --git-token "$git_token" --release-lock <lock_id> --id-only
    ```
 
-   Or let `lockpick commit` do all of it (lock, stage, commit, fence, release) in one command.
+   Or let `agentlocks commit` do all of it (lock, stage, commit, fence, release) in one command.
 
 7. Before a *raw* `git commit`, sanity-check coverage (advisory; never blocks):
 
    ```bash
-   lockpick git verify --json     # lists any staged-but-unlocked paths
+   agentlocks git verify --json     # lists any staged-but-unlocked paths
    ```
 
    This is what the opt-out PreToolUse commit-hook backstop runs automatically. If you ever lose your
-   lock ids (e.g. after context compaction), recover with `lockpick status --mine` and
-   `lockpick release --mine` / `lockpick refresh --mine`.
+   lock ids (e.g. after context compaction), recover with `agentlocks status --mine` and
+   `agentlocks release --mine` / `agentlocks refresh --mine`.
 
 ## Command Reference
 
-`lockpick capabilities --json` is the source of truth for command metadata, flags, exit codes,
+`agentlocks capabilities --json` is the source of truth for command metadata, flags, exit codes,
 default TTLs, agent identity detection, and next commands.
 
 | Command | Purpose | Key flags | Output notes |
@@ -283,15 +283,15 @@ harness integrations and recovery from outside the original harness agent.
 When `--json` is present, parse and runtime errors use compact payloads shaped like:
 
 ```json
-{"ok":false,"code":"commander.unknownOption","message":"error: unknown option '--jason'","details":{"suggestion":{"replace":"--jason","with":"--json","command":"lockpick status --json"}}}
+{"ok":false,"code":"commander.unknownOption","message":"error: unknown option '--jason'","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
 ```
 
 ## Configuration
 
-Host repositories may add `lockpick.config.ts` at the repository root. Defaults stay generic.
+Host repositories may add `agentlocks.config.ts` at the repository root. Defaults stay generic.
 
 ```ts
-import type { LockpickConfig } from "@simke9445/lockpick";
+import type { AgentlocksConfig } from "agentlocks";
 
 export default {
   // Display name used in generated instruction text. Defaults to the repo directory name.
@@ -299,18 +299,18 @@ export default {
 
   // Local lock state root. Active records live under active/, events under events.jsonl,
   // and registry serialization uses a .mutex directory.
-  lockRoot: ".lockpick/locks",
+  lockRoot: ".agentlocks/locks",
 
   command: {
     // Command rendered into the generated AGENTS.md instructions.
-    executable: "lockpick",
+    executable: "agentlocks",
 
     // Use prefix instead when the command should render through a project script or wrapper.
-    // prefix: ["env", "LOCKPICK_PROFILE=team"],
+    // prefix: ["env", "AGENTLOCKS_PROFILE=team"],
 
     // Or render through a package script.
     // packageRunner: "bun",
-    // packageScript: "lockpick",
+    // packageScript: "agentlocks",
   },
 
   defaults: {
@@ -336,13 +336,13 @@ export default {
   owner: {
     // Fallback lookup for unsupported harness integrations.
     // Codex and Claude Code use harness detection automatically.
-    envKeys: ["LOCKPICK_AGENT_ID"],
+    envKeys: ["AGENTLOCKS_AGENT_ID"],
 
     // Runtime harnesses checked first.
     harnesses: ["codex", "claude-code"],
 
     // Generic fallback prefix when no harness, explicit id, or env id is available.
-    fallbackPrefix: "lockpick",
+    fallbackPrefix: "agentlocks",
   },
 
   liveness: {
@@ -355,7 +355,7 @@ export default {
 
   agents: {
     enabled: true,
-    heading: "Lockpick coordination",
+    heading: "Agentlocks coordination",
   },
 
   init: {
@@ -363,11 +363,11 @@ export default {
     updateGitignore: true,
     updatePackageScripts: true,
   },
-} satisfies LockpickConfig;
+} satisfies AgentlocksConfig;
 ```
 
 Config discovery starts at the current working directory, walks up to the nearest `.git`, then
-loads `lockpick.config.ts` if present. Without a config file, Lockpick uses the defaults above.
+loads `agentlocks.config.ts` if present. Without a config file, Agentlocks uses the defaults above.
 
 ## Library API
 
@@ -377,14 +377,14 @@ the package directly:
 ```ts
 import {
   FileLockRegistry,
-  defineLockpickConfig,
+  defineAgentlocksConfig,
   executeLockCommand,
-  loadLockpickConfig,
+  loadAgentlocksConfig,
   runInit,
-} from "@simke9445/lockpick";
+} from "agentlocks";
 
-const config = defineLockpickConfig({
-  lockRoot: ".lockpick/locks",
+const config = defineAgentlocksConfig({
+  lockRoot: ".agentlocks/locks",
 });
 
 await runInit({ root: process.cwd(), check: true });
@@ -405,7 +405,7 @@ console.log(result.exitCode, result.json);
 const registry = new FileLockRegistry({ cwd: process.cwd() });
 console.log(registry.identify("docs-example").owner?.agentId);
 
-await loadLockpickConfig();
+await loadAgentlocksConfig();
 console.log(config.lockRoot);
 ```
 
@@ -415,19 +415,19 @@ normalization, session detection, liveness probes, lock result rendering, and lo
 ## Architecture
 
 ```text
-bin/lockpick.ts
+bin/agentlocks.ts
   -> src/index.ts
     -> cli/main
       -> Commander parser
         -> lock command handlers
-          -> loadLockpickConfig
+          -> loadAgentlocksConfig
           -> FileLockRegistry
             -> normalize paths/globs/@git/index
-            -> .lockpick/locks/.mutex
-            -> .lockpick/locks/active/<lock_id>.json
-            -> .lockpick/locks/events.jsonl
+            -> .agentlocks/locks/.mutex
+            -> .agentlocks/locks/active/<lock_id>.json
+            -> .agentlocks/locks/events.jsonl
         -> init handler
-          -> lockpick.config.ts
+          -> agentlocks.config.ts
           -> AGENTS.md marked block
           -> .gitignore
           -> package.json scripts
@@ -436,45 +436,45 @@ bin/lockpick.ts
 ```
 
 The registry writes lock records atomically through a temporary file and rename. Mutating registry
-operations are serialized with a directory mutex that Lockpick can reclaim after it becomes stale.
+operations are serialized with a directory mutex that Agentlocks can reclaim after it becomes stale.
 
 ## Safety Model
 
-Lockpick is built for cooperative local coordination.
+Agentlocks is built for cooperative local coordination.
 
 | Guarantee | Details |
 | --- | --- |
-| Advisory locking | Lockpick reports and records conflicts; it does not patch editors, shells, or Git to enforce them |
+| Advisory locking | Agentlocks reports and records conflicts; it does not patch editors, shells, or Git to enforce them |
 | Owner-only changes | `expand`, `refresh`, and `release` require the agent id recorded on the lock |
 | Short leases | Default TTL is 10 minutes; maximum default is 30 minutes |
 | Stale recovery | Expired locks are classified by liveness and become reclaimable after the configured unknown-liveness grace |
 | Safe inspection | `init --check --json`, `prune --dry-run --json`, `status --json`, `capabilities --json`, and `doctor --json` are the inspection surfaces |
 | Git-index coordination | `git begin` locks only the synthetic `@git/index` resource; file locks are separate and should still cover staged paths |
 
-Lockpick does not provide a hosted coordinator, cross-machine consensus, authentication, encryption,
+Agentlocks does not provide a hosted coordinator, cross-machine consensus, authentication, encryption,
 or a migration layer for old lock schemas. The lock record schema is current-version only.
 
 ## Troubleshooting
 
 | Symptom | Meaning | Next command |
 | --- | --- | --- |
-| `lock conflict: <path>` | Another active or unreclaimable lock overlaps your requested resource | `lockpick status <path> --json` |
-| Conflict JSON has `suggested_action: "prune_then_retry"` | All overlapping locks are reclaimable | `lockpick prune --dry-run --json`, then `lockpick prune` |
+| `lock conflict: <path>` | Another active or unreclaimable lock overlaps your requested resource | `agentlocks status <path> --json` |
+| Conflict JSON has `suggested_action: "prune_then_retry"` | All overlapping locks are reclaimable | `agentlocks prune --dry-run --json`, then `agentlocks prune` |
 | `Lock <id> is owned by <owner>; current owner is <caller>.` | The current agent id differs from the id that created the lock | Continue from the same harness agent, or use `--agent-id <owner>` for unsupported harness recovery |
-| `At least one lock id is required for refresh.` | `refresh`, `release`, or `git end` needs a lock id | `lockpick status --id-only` |
-| `Lock path must be repo-relative` | Absolute paths are rejected | `lockpick acquire path/from/repo/root --reason "<intent>"` |
-| `Lock TTL must be <= 1800000.` | The requested lease exceeds the configured maximum | `lockpick refresh <lock_id> --ttl-ms 600000` |
-| `init --check --json` exits 1 | Init drift was found; no files were written | Review JSON changes, then run `lockpick init` |
-| `doctor --json` reports init drift | Support files are missing or stale | `lockpick init --check --json` |
-| Unknown flag or command prints `next:` | Lockpick found a close match | Run the exact `next:` command |
+| `At least one lock id is required for refresh.` | `refresh`, `release`, or `git end` needs a lock id | `agentlocks status --id-only` |
+| `Lock path must be repo-relative` | Absolute paths are rejected | `agentlocks acquire path/from/repo/root --reason "<intent>"` |
+| `Lock TTL must be <= 1800000.` | The requested lease exceeds the configured maximum | `agentlocks refresh <lock_id> --ttl-ms 600000` |
+| `init --check --json` exits 1 | Init drift was found; no files were written | Review JSON changes, then run `agentlocks init` |
+| `doctor --json` reports init drift | Support files are missing or stale | `agentlocks init --check --json` |
+| Unknown flag or command prints `next:` | Agentlocks found a close match | Run the exact `next:` command |
 
 ## Limitations
 
-- Lockpick is pre-release, and the CLI requires Bun at runtime.
+- Agentlocks is pre-release, and the CLI requires Bun at runtime.
 - There is no checked-in GitHub Actions workflow, so this README does not show a CI badge.
-- Lockpick coordinates one local worktree through files under `.lockpick/locks`; it is not a
+- Agentlocks coordinates one local worktree through files under `.agentlocks/locks`; it is not a
   networked lock server.
-- Advisory locks work only when participants use Lockpick before editing and staging.
+- Advisory locks work only when participants use Agentlocks before editing and staging.
 - Liveness defaults to the `auto` adapter, which probes the owner's harness (the Codex session
   index or the Claude Code session transcript) and falls back to a short grace window when the
   owner cannot be probed.
@@ -482,49 +482,49 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
   repository-specific defaults, or command aliases.
 - There are no compatibility layers, deprecated command names, or migration tools for previous
   internal layouts or schemas.
-- `lockpick --version` is not implemented; use `lockpick capabilities --json` for the current
+- `agentlocks --version` is not implemented; use `agentlocks capabilities --json` for the current
   package version.
 
 ## FAQ
 
 ### Is this only for agents?
 
-Lockpick is agent-native. A person can run the same commands for recovery or local debugging, but
+Agentlocks is agent-native. A person can run the same commands for recovery or local debugging, but
 the normal workflow assumes Codex, Claude Code, or another coding harness supplies a stable agent
 id.
 
 ### How should agents identify themselves?
 
-They normally should not. Lockpick checks supported harness identity first. Claude Code hooks pass
-`LOCKPICK_HARNESS_AGENT_ID`; Codex uses `CODEX_THREAD_ID`; Claude Code falls back to
-`CLAUDE_CODE_SESSION_ID` when the hook is absent. `--agent-id` and `LOCKPICK_AGENT_ID` are only for
+They normally should not. Agentlocks checks supported harness identity first. Claude Code hooks pass
+`AGENTLOCKS_HARNESS_AGENT_ID`; Codex uses `CODEX_THREAD_ID`; Claude Code falls back to
+`CLAUDE_CODE_SESSION_ID` when the hook is absent. `--agent-id` and `AGENTLOCKS_AGENT_ID` are only for
 unsupported harness integrations or recovery from outside the original harness agent. Without any
-stable source, Lockpick falls back to a process-scoped id.
+stable source, Agentlocks falls back to a process-scoped id.
 
 ### How do users know when to update?
 
-Interactive Lockpick commands check npm at most once per day and print a stderr notice when a
+Interactive Agentlocks commands check npm at most once per day and print a stderr notice when a
 newer version is available:
 
 ```text
-New Lockpick version available: 0.1.1 -> 0.1.2
-Update with: bun update -g --latest @simke9445/lockpick
-npm users: npm install -g @simke9445/lockpick@latest
+New Agentlocks version available: 0.1.1 -> 0.1.2
+Update with: bun update -g --latest agentlocks
+npm users: npm install -g agentlocks@latest
 ```
 
 The update check is skipped for `--json`, `--id-only`, CI, and non-TTY runs so automation output
-stays parseable. Set `LOCKPICK_DISABLE_UPDATE_CHECK=1` to disable it completely.
+stays parseable. Set `AGENTLOCKS_DISABLE_UPDATE_CHECK=1` to disable it completely.
 
 ### What happens in CI?
 
-Use `lockpick status --json`, `lockpick capabilities --json`, and `lockpick doctor --json` for
-read-only checks. Mutating lock commands can work in CI, but Lockpick is primarily designed for
+Use `agentlocks status --json`, `agentlocks capabilities --json`, and `agentlocks doctor --json` for
+read-only checks. Mutating lock commands can work in CI, but Agentlocks is primarily designed for
 interactive shared worktrees.
 
-### Does Lockpick replace Git branches?
+### Does Agentlocks replace Git branches?
 
 No. It coordinates local edits and shared index access inside a worktree. Branch strategy stays
-outside Lockpick.
+outside Agentlocks.
 
 ### Does `@git/index` lock every file?
 
@@ -539,11 +539,11 @@ can remove the record. Use `prune --dry-run --json` first.
 ### Can I use it in a monorepo?
 
 Yes, if every participant agrees on the same repository root and lock root. Use repo-relative paths
-and configure `lockRoot` if the default `.lockpick/locks` is not where you want local state.
+and configure `lockRoot` if the default `.agentlocks/locks` is not where you want local state.
 
 ### Is the lock state safe to commit?
 
-No. `init` adds `.lockpick/` to `.gitignore`. The lock state is local coordination data.
+No. `init` adds `.agentlocks/` to `.gitignore`. The lock state is local coordination data.
 
 ## Development
 

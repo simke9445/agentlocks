@@ -1,6 +1,6 @@
 # Contributing
 
-Lockpick is pre-release. Keep changes small, generic, and backed by tests or command output.
+Agentlocks is pre-release. Keep changes small, generic, and backed by tests or command output.
 
 ## Before You Open a Change
 
@@ -23,11 +23,11 @@ bun run check
 
 ## File Locks
 
-This repository uses Lockpick for advisory file locks. Before editing files, acquire the narrowest
+This repository uses Agentlocks for advisory file locks. Before editing files, acquire the narrowest
 lock that covers the paths you will modify:
 
 ```bash
-bun run --silent lockpick -- acquire <paths...> --reason "<intent>" --id-only
+bun run --silent agentlocks -- acquire <paths...> --reason "<intent>" --id-only
 ```
 
 Expand and refresh the lock as needed, and use `git begin` / `git end` around staging and commits as

@@ -1,18 +1,37 @@
 # Changelog
 
-All notable changes to Lockpick are documented here. Lockpick is pre-release: schemas and the CLI
+All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
+
+## 0.5.0
+
+### Changed
+
+- **Renamed the package from `@simke9445/lockpick` to the unscoped `agentlocks`.** The CLI command, the
+  `.agentlocks/` state directory, the `AGENTLOCKS_*` environment variables, the `agentlocks.config.ts`
+  config file, and the `AgentlocksConfig` type are all renamed to match. The GitHub repository moved to
+  `simke9445/agentlocks` (the old URL redirects). There is no compatibility shim for the old name;
+  reinstall with `bun install -g agentlocks` (or `npm install -g agentlocks`) and re-run
+  `agentlocks init`.
+
+### Added
+
+- **Runtime config validation.** Loading an `agentlocks.config.ts` now rejects unknown top-level or
+  nested keys, wrong value types, and an invalid `liveness.adapter` with a clear, actionable error (for
+  example, a stray `install:` key is reported as `Unknown … key "install". Did you mean "init"?`).
+  Previously such mistakes were silently ignored, so an intended opt-out had no effect. The new
+  `validateAgentlocksConfig` helper and `AgentlocksConfigError` are exported for library use.
 
 ## 0.4.1
 
 ### Changed
 
-- **`lockpick init` no longer writes `CLAUDE.md`.** The Lockpick instructions block always lands in
+- **`agentlocks init` no longer writes `CLAUDE.md`.** The Agentlocks instructions block always lands in
   `AGENTS.md`, which Claude Code reads as well as Codex, so `--harness claude-code` now writes the same
   `AGENTS.md` block as the default harness (it still installs the `.claude/` `PreToolUse` hooks and
   settings). The `init --json` payload drops the now-redundant `instructions_target` field;
   `instructions_path` is always `AGENTS.md`. The exported `InitInstructionsTarget` type is removed.
-- The generated `AGENTS.md` instructions now make **`lockpick commit` the preferred commit path**, with
+- The generated `AGENTS.md` instructions now make **`agentlocks commit` the preferred commit path**, with
   an explanation of what it does (locks the paths and the shared Git index, stages and commits only those
   paths pathspec-scoped, fences the index against a reclaimed lease, and releases — no lock ids to thread).
   The manual `git begin` → `git add`/`git commit` → `git end --git-token` flow is documented as the
@@ -22,13 +41,13 @@ contract change in place with no migration layer.
 
 ### Added
 
-- **`lockpick git verify`** — a read-only, advisory check answering "is each staged path covered by a
+- **`agentlocks git verify`** — a read-only, advisory check answering "is each staged path covered by a
   held lock?". It never blocks and always exits 0. Coverage is direction-aware (a held glob covers a
   matching path; a held narrow path does not cover a broader request) over non-reclaimable locks, and
   it computes the effective committed set per commit form: `--include-unstaged` (for `git commit -a`),
   `--pathspec <p>` with `--pathspec-mode only|include` (for pathspec / `--only` / `--include` commits).
-  It reads lock state without ever writing `.lockpick/` and never performs a network/update check.
-- **PreToolUse commit-hook backstop for Claude Code and Codex, installed by default** by `lockpick init`
+  It reads lock state without ever writing `.agentlocks/` and never performs a network/update check.
+- **PreToolUse commit-hook backstop for Claude Code and Codex, installed by default** by `agentlocks init`
   (opt out with `--no-commit-hook`). It runs `git verify` before a `git commit` tool-call and surfaces
   staged-but-unlocked (or foreign-locked) paths — advisory only, it never blocks the commit. The Claude
   hook is merged into the existing per-Bash agent-id script (one process, not two); the Codex hook is a
@@ -36,12 +55,12 @@ contract change in place with no migration layer.
   your git config is never touched.
 - **`--mine` lost-id recovery** — `status --mine` / `board --mine` show only your locks; `release --mine`
   and `refresh --mine` operate over every lock you hold with no ids. The `--mine` mutates require a
-  stable identity (harness id, `--agent-id`, or `LOCKPICK_AGENT_ID`) and reject an unstable per-process
+  stable identity (harness id, `--agent-id`, or `AGENTLOCKS_AGENT_ID`) and reject an unstable per-process
   or bare-session identity with exit 2.
 - **`@git/index` fencing** — `git begin` stamps a monotonic generation (persisted under
-  `.lockpick/locks/`) onto the index lease and `git begin --id-only` now prints two lines: the lock id,
+  `.agentlocks/locks/`) onto the index lease and `git begin --id-only` now prints two lines: the lock id,
   then a shell-safe fence token. `git end` / `commit` accept `--git-token` and abort with exit 3 if the
-  lease was reclaimed and re-minted. `lockpick commit` runs a foreground keep-alive that re-verifies and
+  lease was reclaimed and re-minted. `agentlocks commit` runs a foreground keep-alive that re-verifies and
   re-extends the lease across both `git add` and `git commit`, killing the child and aborting on loss.
 
 ### Changed

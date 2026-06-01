@@ -1,41 +1,41 @@
-Lockpick agent guide
+Agentlocks agent guide
 
 Inspect:
-- lockpick board
-- lockpick capabilities --json
-- lockpick doctor --json
-- lockpick status --json
-- lockpick identify --json
+- agentlocks board
+- agentlocks capabilities --json
+- agentlocks doctor --json
+- agentlocks status --json
+- agentlocks identify --json
 
 Lock before edits:
-- lockpick acquire <paths...> --reason "<intent>" --id-only
-- lockpick expand --lock <lock_id> <paths...>
-- lockpick refresh <lock_id>
+- agentlocks acquire <paths...> --reason "<intent>" --id-only
+- agentlocks expand --lock <lock_id> <paths...>
+- agentlocks refresh <lock_id>
 
 Or bundle lock, act, and release in one command:
-- lockpick run <paths...> --reason "<intent>" -- <command>
-- lockpick edit <paths...> --reason "<intent>" -- <command>
-- lockpick commit <paths...> --reason "<commit intent>" -m "<message>"
+- agentlocks run <paths...> --reason "<intent>" -- <command>
+- agentlocks edit <paths...> --reason "<intent>" -- <command>
+- agentlocks commit <paths...> --reason "<commit intent>" -m "<message>"
 
 Commit with the shared Git index:
-- lockpick git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
+- agentlocks git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
   (prints two lines: the git lock id, then a fence token)
 - git add <locked_paths>
 - git commit
-- lockpick git end <git_lock_id> --git-token <token> --release-lock <lock_id>
+- agentlocks git end <git_lock_id> --git-token <token> --release-lock <lock_id>
 
 Verify before a raw commit:
-- lockpick git verify --staged          (advisory; never blocks)
+- agentlocks git verify --staged          (advisory; never blocks)
   Covers ordinary commit / commit -a / --amend; rebase/cherry-pick/revert/squash bypass it.
-  Prefer `lockpick commit` for the coordinated path.
+  Prefer `agentlocks commit` for the coordinated path.
 
 Recover:
-- If you lost your lock ids, run lockpick status --mine, then lockpick release --mine / refresh --mine.
-- If a conflict returns prune_then_retry, run lockpick prune --dry-run --json, then lockpick prune.
+- If you lost your lock ids, run agentlocks status --mine, then agentlocks release --mine / refresh --mine.
+- If a conflict returns prune_then_retry, run agentlocks prune --dry-run --json, then agentlocks prune.
 - If an unknown flag error prints next:, run that exact command.
 - If ownership fails, continue from the same harness agent or work on unlocked files.
 
 Output contract:
 - Prefer --json for data surfaces.
 - Treat stdout as data and stderr as diagnostics.
-- Read exit codes from lockpick capabilities --json.
+- Read exit codes from agentlocks capabilities --json.

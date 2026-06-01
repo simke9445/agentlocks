@@ -151,7 +151,7 @@ export function helpText(): string {
 
 function createProgram(onCommand?: (command: CliCommand) => void): Command {
   const program = new Command()
-    .name("lockpick")
+    .name("agentlocks")
     .description("Local advisory locking for shared repository worktrees.")
     .showHelpAfterError()
     .allowExcessArguments(false)
@@ -376,7 +376,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
     const options = command.opts<LockIdentifyOptions>();
     if (options.idOnly) {
       throw new LockCommandError(
-        "--id-only is not supported for identify; use `lockpick identify --json`.",
+        "--id-only is not supported for identify; use `agentlocks identify --json`.",
         2,
         "unsupported_output_option",
       );
@@ -581,7 +581,7 @@ function addWrappedRun(
 function addInitCommand(program: Command, onCommand?: (command: CliCommand) => void): void {
   program
     .command("init")
-    .description("Initialize Lockpick support files in the host repository.")
+    .description("Initialize Agentlocks support files in the host repository.")
     .option("--check", "Report required changes without writing.")
     .option(
       "--harness <name>",
@@ -647,7 +647,7 @@ function addRobotDocsCommand(program: Command, onCommand?: (command: CliCommand)
 function addDoctorCommand(program: Command, onCommand?: (command: CliCommand) => void): void {
   program
     .command("doctor")
-    .description("Run read-only Lockpick health checks.")
+    .description("Run read-only Agentlocks health checks.")
     .option("--json", "Print machine-readable output.")
     .option("--verbose", "Include full check details.")
     .allowExcessArguments(false)

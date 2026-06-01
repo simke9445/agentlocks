@@ -20,24 +20,20 @@ test("version comparison handles semver releases", () => {
 
 test("renders update command guidance", () => {
   expect(renderUpdateNotice("0.1.1", "0.1.2")).toContain(
-    "New Lockpick version available: 0.1.1 -> 0.1.2",
+    "New Agentlocks version available: 0.1.1 -> 0.1.2",
   );
-  expect(renderUpdateNotice("0.1.1", "0.1.2")).toContain(
-    "bun update -g --latest @simke9445/lockpick",
-  );
-  expect(renderUpdateNotice("0.1.1", "0.1.2")).toContain(
-    "npm install -g @simke9445/lockpick@latest",
-  );
+  expect(renderUpdateNotice("0.1.1", "0.1.2")).toContain("bun update -g --latest agentlocks");
+  expect(renderUpdateNotice("0.1.1", "0.1.2")).toContain("npm install -g agentlocks@latest");
 });
 
 test("prints update notice when forced and registry has a newer version", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "lockpick-update-notice-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-update-notice-"));
   try {
     const stderr = captureStderr(true);
     await maybePrintUpdateNotice({
       cachePath: path.join(workspace, "cache.json"),
       currentVersion: "0.1.1",
-      env: { LOCKPICK_UPDATE_CHECK: "1" },
+      env: { AGENTLOCKS_UPDATE_CHECK: "1" },
       fetchImpl: async () => ({
         ok: true,
         json: async () => ({ version: "0.1.2" }),
@@ -46,8 +42,8 @@ test("prints update notice when forced and registry has a newer version", async 
       stderr,
     });
 
-    expect(stderr.output).toContain("New Lockpick version available: 0.1.1 -> 0.1.2");
-    expect(stderr.output).toContain("Update with: bun update -g --latest @simke9445/lockpick");
+    expect(stderr.output).toContain("New Agentlocks version available: 0.1.1 -> 0.1.2");
+    expect(stderr.output).toContain("Update with: bun update -g --latest agentlocks");
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

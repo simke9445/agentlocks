@@ -13,15 +13,15 @@ export {
 import {
   DEFAULT_CONFIG_FILE,
   findHostRoot,
-  loadLockpickConfig,
-  type ResolvedLockpickConfig,
-  renderLockpickCommand,
+  loadAgentlocksConfig,
+  type ResolvedAgentlocksConfig,
+  renderAgentlocksCommand,
 } from "./config";
 import { ensureDir, pathExists, readText, writeText } from "./io";
 import { formatJsonArtifact } from "./json";
 
-export const LOCKPICK_AGENTS_START = "<!-- lockpick:start -->";
-export const LOCKPICK_AGENTS_END = "<!-- lockpick:end -->";
+export const AGENTLOCKS_AGENTS_START = "<!-- agentlocks:start -->";
+export const AGENTLOCKS_AGENTS_END = "<!-- agentlocks:end -->";
 
 export interface InitOptions {
   root?: string;
@@ -59,31 +59,31 @@ export interface InitResult {
   recommendedScripts: Record<string, string>;
 }
 
-// Lockpick instructions always live in AGENTS.md. Claude Code and Codex both
+// Agentlocks instructions always live in AGENTS.md. Claude Code and Codex both
 // read it, so there is no harness-specific instructions file; the harness only
 // selects which hook scripts are installed below.
 const AGENTS_INSTRUCTIONS_PATH = "AGENTS.md";
 
 const RECOMMENDED_PACKAGE_SCRIPTS: Record<string, string> = {
-  lockpick: "lockpick",
-  "lockpick:status": "lockpick status",
-  "lockpick:init": "lockpick init",
+  agentlocks: "agentlocks",
+  "agentlocks:status": "agentlocks status",
+  "agentlocks:init": "agentlocks init",
 };
 
-export const CLAUDE_LOCKPICK_AGENT_HOOK_PATH = ".claude/hooks/lockpick-agent-env.mjs";
+export const CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH = ".claude/hooks/agentlocks-agent-env.mjs";
 const CLAUDE_SETTINGS_PATH = ".claude/settings.json";
 const CLAUDE_HOOK_SCRIPT_REFERENCE =
-  "$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/lockpick-agent-env.mjs";
+  "$" + "{CLAUDE_PROJECT_DIR}/.claude/hooks/agentlocks-agent-env.mjs";
 const CLAUDE_HOOK_COMMAND = "node";
 // The default (id-injection-only) Claude hook body lives in commit-hook-script.ts
 // as the single source of truth; the merged commit-hook body extends it there.
-const CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT = CLAUDE_AGENT_ENV_HOOK_BODY;
+const CLAUDE_AGENTLOCKS_AGENT_HOOK_SCRIPT = CLAUDE_AGENT_ENV_HOOK_BODY;
 
-export const CODEX_COMMIT_HOOK_SCRIPT_PATH = ".codex/hooks/lockpick-git-verify.mjs";
+export const CODEX_COMMIT_HOOK_SCRIPT_PATH = ".codex/hooks/agentlocks-git-verify.mjs";
 const CODEX_HOOKS_CONFIG_PATH = ".codex/hooks.json";
 const CODEX_HOOK_MATCHER = "^Bash$";
 const CODEX_HOOK_COMMAND =
-  'node "$(git rev-parse --show-toplevel)/.codex/hooks/lockpick-git-verify.mjs"';
+  'node "$(git rev-parse --show-toplevel)/.codex/hooks/agentlocks-git-verify.mjs"';
 const CODEX_HOOK_TIMEOUT = 30;
 const CODEX_TRUST_NOTE =
   "Codex project-local hooks are inert until you trust this project (Codex prints a startup " +
@@ -95,7 +95,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   const harness = options.harness ?? "auto";
   const resolvedHarness = resolveInitHarness(harness, process.env);
   const commitHook = Boolean(options.commitHook);
-  const config = await loadLockpickConfig({ root });
+  const config = await loadAgentlocksConfig({ root });
   const changes: InitChange[] = [];
 
   changes.push(await ensureLockDirectories(config, check));
@@ -133,8 +133,8 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   };
 }
 
-export function renderClaudeLockpickAgentHookScript(): string {
-  return CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT;
+export function renderClaudeAgentlocksAgentHookScript(): string {
+  return CLAUDE_AGENTLOCKS_AGENT_HOOK_SCRIPT;
 }
 
 export function resolveInitHarness(
@@ -150,7 +150,7 @@ export function resolveInitHarness(
 
 export function renderInitResult(result: InitResult): string {
   const lines = [
-    result.ok ? "lockpick init: ok" : "lockpick init: changes needed",
+    result.ok ? "agentlocks init: ok" : "agentlocks init: changes needed",
     `root: ${result.root}`,
   ];
   for (const change of result.changes) {
@@ -159,16 +159,16 @@ export function renderInitResult(result: InitResult): string {
   return lines.join("\n");
 }
 
-export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
-  const acquire = renderLockpickCommand(config, [
+export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): string {
+  const acquire = renderAgentlocksCommand(config, [
     "acquire",
     "<paths...>",
     "--reason",
     '"<intent>"',
   ]);
-  const expand = renderLockpickCommand(config, ["expand", "--lock", "<lock_id>", "<paths...>"]);
-  const refresh = renderLockpickCommand(config, ["refresh", "<lock_id>"]);
-  const commit = renderLockpickCommand(config, [
+  const expand = renderAgentlocksCommand(config, ["expand", "--lock", "<lock_id>", "<paths...>"]);
+  const refresh = renderAgentlocksCommand(config, ["refresh", "<lock_id>"]);
+  const commit = renderAgentlocksCommand(config, [
     "commit",
     "<paths...>",
     "--reason",
@@ -176,7 +176,7 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     "-m",
     '"<message>"',
   ]);
-  const gitBegin = renderLockpickCommand(config, [
+  const gitBegin = renderAgentlocksCommand(config, [
     "git",
     "begin",
     "--refresh-lock",
@@ -184,7 +184,7 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     "--reason",
     '"<commit intent>"',
   ]);
-  const gitEnd = renderLockpickCommand(config, [
+  const gitEnd = renderAgentlocksCommand(config, [
     "git",
     "end",
     "<git_lock_id>",
@@ -194,10 +194,10 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     "<lock_id>",
   ]);
   return [
-    LOCKPICK_AGENTS_START,
+    AGENTLOCKS_AGENTS_START,
     `## ${config.agents.heading}`,
     "",
-    "This repository uses Lockpick advisory locks for multi-agent editing.",
+    "This repository uses Agentlocks advisory locks for multi-agent editing.",
     "",
     "- Acquire exact file locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
     `- Use \`${acquire}\` and keep requested paths narrow. Prefer exact paths over globs.`,
@@ -210,19 +210,19 @@ export function lockpickAgentsSnippet(config: ResolvedLockpickConfig): string {
     `- Only if you must drive \`git\` yourself: \`${gitBegin}\` (it prints the git lock id then a fence token),`,
     "  stage only paths covered by your held locks, `git commit`, then",
     `  \`${gitEnd}\`. The \`--git-token\` aborts the release if the index lease was reclaimed mid-commit.`,
-    "- Release promptly after commit or handoff with `lockpick release <lock_id>` (or `lockpick release --mine`).",
-    LOCKPICK_AGENTS_END,
+    "- Release promptly after commit or handoff with `agentlocks release <lock_id>` (or `agentlocks release --mine`).",
+    AGENTLOCKS_AGENTS_END,
   ].join("\n");
 }
 
-function lockpickConfigTemplate(projectName: string): string {
-  return `import type { LockpickConfig } from "lockpick";
+function agentlocksConfigTemplate(projectName: string): string {
+  return `import type { AgentlocksConfig } from "agentlocks";
 
 export default {
   projectName: ${JSON.stringify(projectName)},
-  lockRoot: ".lockpick/locks",
+  lockRoot: ".agentlocks/locks",
   command: {
-    executable: "lockpick",
+    executable: "agentlocks",
   },
   defaults: {
     ttlMs: 600_000,
@@ -232,19 +232,19 @@ export default {
     keepAliveOnMutation: true,
   },
   owner: {
-    envKeys: ["LOCKPICK_AGENT_ID"],
+    envKeys: ["AGENTLOCKS_AGENT_ID"],
     harnesses: ["codex", "claude-code"],
-    fallbackPrefix: "lockpick",
+    fallbackPrefix: "agentlocks",
   },
   liveness: {
     adapter: "auto",
   },
-} satisfies LockpickConfig;
+} satisfies AgentlocksConfig;
 `;
 }
 
 async function ensureLockDirectories(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const activeDir = path.join(config.lockRoot, "active");
@@ -260,24 +260,24 @@ async function ensureLockDirectories(
 }
 
 async function ensureConfigFile(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const relative = path.relative(config.root, config.configPath) || DEFAULT_CONFIG_FILE;
   if (await pathExists(config.configPath)) {
     return change(relative, "exists", "existing config preserved");
   }
-  if (!check) await writeText(config.configPath, lockpickConfigTemplate(config.projectName));
+  if (!check) await writeText(config.configPath, agentlocksConfigTemplate(config.projectName));
   return change(relative, check ? "would_create" : "created", "default config is required");
 }
 
 async function ensureAgentsInstructions(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const agentsPath = path.join(config.root, AGENTS_INSTRUCTIONS_PATH);
   const relative = AGENTS_INSTRUCTIONS_PATH;
-  const snippet = lockpickAgentsSnippet(config);
+  const snippet = agentlocksAgentsSnippet(config);
   const exists = await pathExists(agentsPath);
   const current = exists ? await readText(agentsPath) : "";
   const next = upsertMarkedBlock(current, snippet);
@@ -286,37 +286,37 @@ async function ensureAgentsInstructions(
   return change(
     relative,
     check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
-    "Lockpick instructions are required",
+    "Agentlocks instructions are required",
   );
 }
 
 async function ensureClaudeHookScript(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
   commitHook: boolean,
 ): Promise<InitChange> {
-  const hookPath = path.join(config.root, CLAUDE_LOCKPICK_AGENT_HOOK_PATH);
+  const hookPath = path.join(config.root, CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH);
   // With --commit-hook the merged body adds the gated git-commit verify branch;
   // otherwise the id-injection-only body (byte-identical to 0.3.0) is written.
-  const body = commitHook ? renderClaudeCommitHookScript() : CLAUDE_LOCKPICK_AGENT_HOOK_SCRIPT;
+  const body = commitHook ? renderClaudeCommitHookScript() : CLAUDE_AGENTLOCKS_AGENT_HOOK_SCRIPT;
   const exists = await pathExists(hookPath);
   const current = exists ? await readText(hookPath) : "";
   if (exists && current === body) {
-    return change(CLAUDE_LOCKPICK_AGENT_HOOK_PATH, "unchanged", "Claude agent hook is current");
+    return change(CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH, "unchanged", "Claude agent hook is current");
   }
   if (!check) {
     await ensureDir(path.dirname(hookPath));
     await writeText(hookPath, body);
   }
   return change(
-    CLAUDE_LOCKPICK_AGENT_HOOK_PATH,
+    CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH,
     check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
     "Claude agent hook is required",
   );
 }
 
 async function ensureCodexCommitHook(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange[]> {
   const changes: InitChange[] = [];
@@ -331,7 +331,7 @@ async function ensureCodexCommitHook(
 }
 
 async function ensureCodexHookScript(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const scriptPath = path.join(config.root, CODEX_COMMIT_HOOK_SCRIPT_PATH);
@@ -353,7 +353,7 @@ async function ensureCodexHookScript(
 }
 
 async function ensureCodexHooksConfig(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const configPath = path.join(config.root, CODEX_HOOKS_CONFIG_PATH);
@@ -377,7 +377,7 @@ async function ensureCodexHooksConfig(
 }
 
 async function ensureClaudeSettings(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const settingsPath = path.join(config.root, CLAUDE_SETTINGS_PATH);
@@ -401,12 +401,12 @@ async function ensureClaudeSettings(
 }
 
 async function ensureGitignore(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const gitignorePath = path.join(config.root, ".gitignore");
   const relative = ".gitignore";
-  const entry = ".lockpick/";
+  const entry = ".agentlocks/";
   const exists = await pathExists(gitignorePath);
   const current = exists ? await readText(gitignorePath) : "";
   if (hasGitignoreEntry(current, entry)) return change(relative, "unchanged", "entry exists");
@@ -421,7 +421,7 @@ async function ensureGitignore(
 }
 
 async function ensurePackageScripts(
-  config: ResolvedLockpickConfig,
+  config: ResolvedAgentlocksConfig,
   check: boolean,
 ): Promise<InitChange> {
   const packagePath = path.join(config.root, "package.json");
@@ -453,10 +453,10 @@ async function ensurePackageScripts(
 function upsertMarkedBlock(current: string, block: string): string {
   const normalizedBlock = `${block.trim()}\n`;
   if (!current.trim()) return `# Repository instructions for agents\n\n${normalizedBlock}`;
-  const start = current.indexOf(LOCKPICK_AGENTS_START);
-  const end = current.indexOf(LOCKPICK_AGENTS_END);
+  const start = current.indexOf(AGENTLOCKS_AGENTS_START);
+  const end = current.indexOf(AGENTLOCKS_AGENTS_END);
   if (start !== -1 && end !== -1 && end > start) {
-    const afterEnd = end + LOCKPICK_AGENTS_END.length;
+    const afterEnd = end + AGENTLOCKS_AGENTS_END.length;
     const prefix = current.slice(0, start);
     const suffix = current.slice(afterEnd).replace(/^\n*/, "");
     return suffix ? `${prefix}${normalizedBlock}\n${suffix}` : `${prefix}${normalizedBlock}`;
@@ -490,7 +490,7 @@ function upsertClaudeHookSettings(settings: Record<string, unknown>): Record<str
     ? { ...(preToolUse[bashGroupIndex] as Record<string, unknown>) }
     : { matcher: "Bash" };
   const hookHandlers = Array.isArray(existingGroup.hooks) ? [...existingGroup.hooks] : [];
-  if (!hookHandlers.some(isClaudeLockpickAgentHookHandler)) {
+  if (!hookHandlers.some(isClaudeAgentlocksAgentHookHandler)) {
     hookHandlers.push({
       type: "command",
       command: CLAUDE_HOOK_COMMAND,
@@ -508,7 +508,7 @@ function upsertClaudeHookSettings(settings: Record<string, unknown>): Record<str
   return { ...settings, hooks };
 }
 
-function isClaudeLockpickAgentHookHandler(value: unknown): boolean {
+function isClaudeAgentlocksAgentHookHandler(value: unknown): boolean {
   return (
     isRecord(value) &&
     value.type === "command" &&
@@ -529,7 +529,7 @@ function upsertCodexHookConfig(config: Record<string, unknown>): Record<string, 
     ? { ...(preToolUse[bashGroupIndex] as Record<string, unknown>) }
     : { matcher: CODEX_HOOK_MATCHER };
   const hookHandlers = Array.isArray(existingGroup.hooks) ? [...existingGroup.hooks] : [];
-  if (!hookHandlers.some(isCodexLockpickHookHandler)) {
+  if (!hookHandlers.some(isCodexAgentlocksHookHandler)) {
     hookHandlers.push({
       type: "command",
       command: CODEX_HOOK_COMMAND,
@@ -547,7 +547,7 @@ function upsertCodexHookConfig(config: Record<string, unknown>): Record<string, 
   return { ...config, hooks };
 }
 
-function isCodexLockpickHookHandler(value: unknown): boolean {
+function isCodexAgentlocksHookHandler(value: unknown): boolean {
   return isRecord(value) && value.type === "command" && value.command === CODEX_HOOK_COMMAND;
 }
 

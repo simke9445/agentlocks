@@ -63,7 +63,7 @@ function exec(command, commandArgs) {
 const prebuilt = resolvePrebuiltBinary();
 if (prebuilt) {
   const error = exec(prebuilt, args);
-  // exec only returns on a spawn failure (corrupt / non-executable / arch-mismatch binary) —
+  // exec only returns on a spawn failure (corrupt / non-executable / arch-mismatch binary);
   // warn and fall through to Bun rather than dying with an unhandled error.
   process.stderr.write(
     `agentlocks: prebuilt binary failed to start (${error.code ?? error.message}); trying Bun.\n`,

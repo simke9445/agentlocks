@@ -2,7 +2,7 @@
 // Install smoke test: build this platform's self-contained binary, lay it out
 // exactly as `npm i -g agentlocks` would (the main package plus the
 // agentlocks-<platform> optional dependency under node_modules), then run the
-// Node launcher with NO Bun reachable and assert the CLI works end to end —
+// Node launcher with NO Bun reachable and assert the CLI works end to end,
 // including loading a .ts config from a host repo. CI runs this on each OS.
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -36,7 +36,7 @@ if (!existsSync(builtBinary)) fail(`built binary missing at ${builtBinary}`);
 
 // 2. Stage a fake global install: node_modules/{agentlocks, agentlocks-<platform>}.
 //    AGENTLOCKS_DISABLE_BUN_FALLBACK=1 (set below) makes the launcher refuse the Bun fallback
-//    entirely, so a green run PROVES the prebuilt binary did the work — a stripped PATH + clean
+//    entirely, so a green run PROVES the prebuilt binary did the work; a stripped PATH + clean
 //    HOME alone are not enough, since findBun also probes absolute paths like /opt/homebrew/bin/bun.
 const stage = mkdtempSync(path.join(os.tmpdir(), "agentlocks-smoke-"));
 const home = path.join(stage, "home");

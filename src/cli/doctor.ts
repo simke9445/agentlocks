@@ -79,7 +79,7 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
   // Validate against whichever install the user actually chose: `init` installs the commit-hook
   // backstop by default, but `init --no-commit-hook` is equally valid (and the choice is not
   // persisted). Check commitHook:true first; if it shows drift, also check commitHook:false and
-  // keep whichever has LESS drift — otherwise one of the two valid configurations always reports
+  // keep whichever has less drift; otherwise one of the two valid configurations always reports
   // a perpetual false "init drift".
   let init = await runInit({
     root: config.root,
@@ -167,7 +167,7 @@ async function mutexCheck(mutexPath: string): Promise<DoctorCheck> {
     const ageMs = Date.now() - stat.mtimeMs;
     // The registry protects a live same-host holder up to REGISTRY_MUTEX_LIVE_CEILING_MS and only
     // force-reclaims past it, so a mutex younger than the ceiling is either held by a live op or
-    // will be reclaimed automatically — not a finding. Only one older than the ceiling is
+    // will be reclaimed automatically, not a finding. Only one older than the ceiling is
     // genuinely stuck (a crashed/foreign holder the registry could not protect by liveness).
     const stuck = ageMs > REGISTRY_MUTEX_LIVE_CEILING_MS;
     const check: DoctorCheck = {
@@ -228,7 +228,7 @@ async function harnessChecks(
     const sessionScope = owner.harness === "claude-code" && owner.harnessScope === "session";
     // A bare session-scoped identity is only a problem when the hook is ABSENT: then subagents
     // share one identity. With the hook installed, each Bash tool-call gets a scoped id, and a
-    // direct `doctor` invocation legitimately reads a session-scoped id — so don't nag (this was
+    // direct `doctor` invocation legitimately reads a session-scoped id, so don't nag (this was
     // the false positive that made doctor report ok:false right after init --harness claude-code).
     const sessionScopeProblem = sessionScope && !hookExists;
     const agentScopeCheck: DoctorCheck = {

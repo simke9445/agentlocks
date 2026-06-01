@@ -65,7 +65,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       # Builds this platform's compiled binary, stages the npm-install layout, and runs the
-      # Node launcher with the Bun fallback disabled — proving `npm i -g agentlocks` works
+      # Node launcher with the Bun fallback disabled, proving `npm i -g agentlocks` works
       # with no Bun on the machine.
       - name: Install smoke test
         run: bun run smoke

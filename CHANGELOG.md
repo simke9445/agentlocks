@@ -8,8 +8,8 @@ contract change in place with no migration layer.
 ### Changed
 
 - **README rewrite and npm metadata refresh.** The README now leads with the agent-native value
-  proposition — a verifiable "Genuinely agent-native" surface table plus the typo-teaching and
-  zero-config-identity examples — instead of opening on reference tables. The npm `description` and
+  proposition (a verifiable "Genuinely agent-native" surface table plus the typo-teaching and
+  zero-config-identity examples) instead of opening on reference tables. The npm `description` and
   `keywords` are rewritten around the same positioning. No code or CLI-contract changes.
 - Added a GitHub social-preview card (`gh_og_share_image.png`).
 
@@ -43,7 +43,7 @@ contract change in place with no migration layer.
   `instructions_path` is always `AGENTS.md`. The exported `InitInstructionsTarget` type is removed.
 - The generated `AGENTS.md` instructions now make **`agentlocks commit` the preferred commit path**, with
   an explanation of what it does (locks the paths and the shared Git index, stages and commits only those
-  paths pathspec-scoped, fences the index against a reclaimed lease, and releases — no lock ids to thread).
+  paths pathspec-scoped, fences the index against a reclaimed lease, and releases, with no lock ids to thread).
   The manual `git begin` → `git add`/`git commit` → `git end --git-token` flow is documented as the
   lower-level alternative.
 
@@ -51,7 +51,7 @@ contract change in place with no migration layer.
 
 ### Added
 
-- **`agentlocks git verify`** — a read-only, advisory check answering "is each staged path covered by a
+- **`agentlocks git verify`**: a read-only, advisory check answering "is each staged path covered by a
   held lock?". It never blocks and always exits 0. Coverage is direction-aware (a held glob covers a
   matching path; a held narrow path does not cover a broader request) over non-reclaimable locks, and
   it computes the effective committed set per commit form: `--include-unstaged` (for `git commit -a`),
@@ -63,11 +63,11 @@ contract change in place with no migration layer.
   hook is merged into the existing per-Bash agent-id script (one process, not two); the Codex hook is a
   `^Bash$` `PreToolUse` entry under `.codex/` with a git-root-stable path. No git hook is installed and
   your git config is never touched.
-- **`--mine` lost-id recovery** — `status --mine` / `board --mine` show only your locks; `release --mine`
+- **`--mine` lost-id recovery**: `status --mine` / `board --mine` show only your locks; `release --mine`
   and `refresh --mine` operate over every lock you hold with no ids. The `--mine` mutates require a
   stable identity (harness id, `--agent-id`, or `AGENTLOCKS_AGENT_ID`) and reject an unstable per-process
   or bare-session identity with exit 2.
-- **`@git/index` fencing** — `git begin` stamps a monotonic generation (persisted under
+- **`@git/index` fencing**: `git begin` stamps a monotonic generation (persisted under
   `.agentlocks/locks/`) onto the index lease and `git begin --id-only` now prints two lines: the lock id,
   then a shell-safe fence token. `git end` / `commit` accept `--git-token` and abort with exit 3 if the
   lease was reclaimed and re-minted. `agentlocks commit` runs a foreground keep-alive that re-verifies and
@@ -75,7 +75,7 @@ contract change in place with no migration layer.
 
 ### Changed
 
-- **Idempotent acquire** — re-acquiring a path (or sub-path) you already hold now refreshes and returns
+- **Idempotent acquire**: re-acquiring a path (or sub-path) you already hold now refreshes and returns
   your existing lock (exit 0) instead of self-conflicting (exit 3). A request broader than your held
   locks, or overlapping another agent's, still conflicts.
 - `git begin --json` now returns a stable `{kind:"git-begin", lock_id, git_token, refreshed_lock_ids}`
@@ -85,10 +85,10 @@ contract change in place with no migration layer.
 
 ### Added
 
-- **`board`** — a read-only, mutex-free Who/What/Where overview grouped by agent, showing each
+- **`board`**: a read-only, mutex-free Who/What/Where overview grouped by agent, showing each
   lease's state and the next step (e.g. `reclaimable now -> prune, then acquire`). Run it before
   claiming to pick a non-overlapping area.
-- **`acquire --reclaim`** — when every overlapping conflict is already reclaimable, prune those locks
+- **`acquire --reclaim`**: when every overlapping conflict is already reclaimable, prune those locks
   and acquire in a single command, reporting `reclaimed_lock_ids`. Also configurable globally via
   `defaults.autoReclaimOnConflict` (off by default).
 - **`run` / `edit` / `commit` intent verbs** that bundle the safe lock/act/release ordering:
@@ -96,7 +96,7 @@ contract change in place with no migration layer.
   turns; `commit <paths> --reason -m <msg>` stages and commits only the locked paths (pathspec-scoped)
   through the `@git/index` lock. The wrapped command runs outside the registry mutex.
 - **Claude Code liveness adapter** plus an **`auto`** adapter (now the default) that probes by the
-  owner's detected harness — the Codex session index or the Claude Code session transcript — and falls
+  owner's detected harness (the Codex session index or the Claude Code session transcript) and falls
   back to the grace window for un-probeable owners.
 - **Owner-mutation keep-alive** (`defaults.keepAliveOnMutation`, on by default): an agent's own
   acquire/expand/refresh extends its other held leases, capped to leases newer than the max TTL so

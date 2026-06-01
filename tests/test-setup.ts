@@ -5,7 +5,7 @@
 // Codex) leaks CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID into the tests. Harness
 // detection takes precedence over an explicit agentId (see identifyLockOwner in
 // src/locks/session.ts), so two "different" agents collapse to one id and the
-// resolved harness flips — turning green tests red only inside a harness.
+// resolved harness flips, turning green tests red only inside a harness.
 //
 // Tests that exercise harness detection set these keys explicitly (via a registry
 // `env` option or the runCli `env` arg); that still works because this only

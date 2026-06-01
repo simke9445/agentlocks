@@ -807,7 +807,7 @@ export class FileLockRegistry {
         } finally {
           // Only delete the mutex when we can CONFIRM it is still ours (owner.json carries our
           // nonce). If our hold was reclaimed mid-operation and a successor re-acquired, the nonce
-          // differs — and if that successor is between its mkdir and its owner.json write, the read
+          // differs, and if that successor is between its mkdir and its owner.json write, the read
           // returns null. In BOTH cases we must NOT remove the directory: doing so would evict a
           // live successor (and, in the null case, make its owner.json write fail with ENOENT). A
           // genuinely-orphaned dir (reclaimed, no successor yet) is left for the next staleness
@@ -835,7 +835,7 @@ export class FileLockRegistry {
     }
     const ageMs = this.now().getTime() - stat.mtimeMs;
     if (ageMs <= REGISTRY_MUTEX_STALE_MS) return false;
-    // Stale by mtime — but refuse to evict a holder that is PROVABLY live (recorded on this host
+    // Stale by mtime, but refuse to evict a holder that is provably live (recorded on this host
     // with a still-running pid), up to a ceiling that bounds pid-reuse and an indefinitely-wedged
     // holder. owner.json is the evidence the prior design wrote but never consulted, which let a
     // merely-slow live holder be barged into the critical section (a double-acquire hazard).

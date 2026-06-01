@@ -129,7 +129,7 @@ function cliErrorSuggestion(
 
 // A missing required option ("required option '--reason <text>' not specified") should not
 // dead-end: name the corrected command with the flag appended and its placeholder kept visible,
-// so the agent learns the exact invocation. (Axiom 6 — every error names the exact fix.)
+// so the agent learns the exact invocation. (Axiom 6: every error names the exact fix.)
 function missingOptionSuggestion(message: string, argv: string[]): CliErrorSuggestion | null {
   const spec = extractQuotedValue(message, "required option");
   if (!spec) return null;

@@ -12,7 +12,7 @@ import { probeCodexSessionLiveness } from "../src/locks/session";
 
 // Concurrency + correctness hardening for the lock core (Step 4 audit). Each executeLockCommand
 // builds its own registry, so a Promise.all of N calls contends on the real atomic-mkdir
-// .mutex exactly as N separate processes would — a faithful in-process model of the
+// .mutex exactly as N separate processes would: a faithful in-process model of the
 // multi-process mutual exclusion the mutex exists to provide.
 async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-conc-"));

@@ -137,7 +137,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   } catch (error) {
     // commander.helpDisplayed = explicit --help; commander.help = bare invocation or a
     // command group with no subcommand (`agentlocks`, `robot-docs`, `git`); commander.version
-    // = --version. All three are informational, not errors — return the buffered text so main
+    // = --version. All three are informational, not errors, so return the buffered text so main
     // prints it and exits 0, instead of leaking commander's "(outputHelp)" sentinel as an error.
     if (
       error instanceof CommanderError &&

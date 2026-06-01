@@ -160,7 +160,7 @@ export async function probeCodexSessionLiveness(
   }
   // A present-but-stale index entry stays "unknown" (matching the Claude probe's
   // stale-but-present rule) so it falls through to the unknown-liveness grace instead of
-  // false-reclaiming a live owner — Codex does not refresh session_index updated_at per turn,
+  // false-reclaiming a live owner; Codex does not refresh session_index updated_at per turn,
   // so a working agent's entry routinely ages past the threshold. Only a confirmed-MISSING
   // entry (handled above) is treated as dead.
   return { status: "unknown", evidence: `session last updated ${Math.max(0, ageMs)}ms ago` };

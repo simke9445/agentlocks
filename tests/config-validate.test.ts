@@ -31,7 +31,7 @@ const FULL_VALID = {
   },
   liveness: { adapter: "auto" },
   agents: { enabled: true, heading: "Agentlocks coordination" },
-  init: { updateAgents: true, updateGitignore: true, updatePackageScripts: false },
+  init: { updateAgents: true, updateGitignore: true },
 };
 
 test("accepts a fully-populated valid config", () => {
@@ -51,15 +51,15 @@ test("accepts null for nullable command fields", () => {
 });
 
 test("rejects an unknown top-level key and points at the right one", () => {
-  // The exact evolvd mistake: `install` instead of `init`.
-  expect(() => validateAgentlocksConfig({ install: { updatePackageScripts: false } })).toThrow(
+  // The exact earlier version's mistake: `install` instead of `init`.
+  expect(() => validateAgentlocksConfig({ install: { updateAgents: false } })).toThrow(
     AgentlocksConfigError,
   );
   expect(() => validateAgentlocksConfig({ install: {} })).toThrow(/init/);
 });
 
 test("rejects an unknown nested key", () => {
-  // The other evolvd mistake: `includeCodexEnv` is not a real owner key.
+  // The other earlier version's mistake: `includeCodexEnv` is not a real owner key.
   expect(() => validateAgentlocksConfig({ owner: { includeCodexEnv: true } })).toThrow(
     /owner\.includeCodexEnv/,
   );
@@ -88,7 +88,7 @@ test("rejects a non-object config", () => {
 test("resolveAgentlocksConfig rejects a config with a bad key (programmatic path)", () => {
   // resolveAgentlocksConfig is the universal chokepoint every load funnels through.
   expect(() =>
-    resolveAgentlocksConfig({ install: { updatePackageScripts: false } } as never, {
+    resolveAgentlocksConfig({ install: { updateAgents: false } } as never, {
       root: "/tmp/agentlocks-x",
     }),
   ).toThrow(AgentlocksConfigError);
@@ -100,7 +100,7 @@ test("loadAgentlocksConfig rejects a config FILE with a bad key", async () => {
   try {
     await writeFile(
       path.join(dir, "agentlocks.config.ts"),
-      "export default { install: { updatePackageScripts: false } };\n",
+      "export default { install: { updateAgents: false } };\n",
       "utf8",
     );
     // loadAgentlocksConfig is async, so the validation error surfaces as a rejection.

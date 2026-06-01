@@ -35,7 +35,7 @@ main package.**
 ## Pre-flight
 
 ```bash
-git switch launch-polish              # release from the polish branch
+git switch main                       # release from main (or a dedicated release branch)
 bun run check                         # 138+ pass, typecheck + lint clean — do not release on red
 npm whoami                            # confirm you are logged in to the right npm account
 ```
@@ -70,30 +70,63 @@ for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
 done
 ```
 
-npm prompts for a 2FA OTP per publish if your account has 2FA on. After the last one, give npm a
-moment to propagate the new versions through its index (about 30 seconds) before the next step, or
-`bun install` may not see them yet.
+If your account has 2FA-on-publish, npm asks for a one-time password each publish. One fresh code
+usually covers the whole burst, because npm caches the validated session: pass `--otp=<code>` on the
+first publish and the rest ride it (add a fresh `--otp` to any that still report `EOTP`). After the
+last publish, give npm about 30 seconds to propagate the new versions before the next step.
 
 ## 3. Wire optionalDependencies into the main package and refresh the lockfile
 
-Add the block to `package.json` (substitute the real version):
-
-```json
-  "optionalDependencies": {
-    "agentlocks-darwin-arm64": "X.Y.Z",
-    "agentlocks-darwin-x64": "X.Y.Z",
-    "agentlocks-linux-x64": "X.Y.Z",
-    "agentlocks-linux-arm64": "X.Y.Z"
-  },
-```
-
-Then resolve and lock against the now-published packages:
+Add the four platform packages to `package.json` (`npm pkg set` edits it without hand-editing JSON):
 
 ```bash
-bun install                           # updates bun.lock; succeeds only because step 2 published them
+npm pkg set \
+  optionalDependencies.agentlocks-darwin-arm64=X.Y.Z \
+  optionalDependencies.agentlocks-darwin-x64=X.Y.Z \
+  optionalDependencies.agentlocks-linux-x64=X.Y.Z \
+  optionalDependencies.agentlocks-linux-arm64=X.Y.Z
+```
+
+The lockfile now needs resolved entries for those packages, but **do not run `bun install` on the
+host**: the host enforces a 7-day package `min-release-age` (a supply-chain defense), so it refuses
+the packages you published minutes ago and would write an incomplete lockfile. Generate the complete
+`bun.lock` inside a container that has no age rule, seeded with the previous lockfile so only the four
+new entries change, and bring back only the lockfile (`oven/bun` tag = the `packageManager` version in
+`package.json`):
+
+```bash
+mkdir -p /tmp/lockgen
+cp package.json /tmp/lockgen/package.json        # new package.json (with optionalDependencies)
+git show HEAD:bun.lock > /tmp/lockgen/bun.lock   # previous lockfile (without them)
+docker run --rm -v /tmp/lockgen:/in:ro oven/bun:1.3.13 bash -c '
+  set -e; mkdir -p /w && cd /w
+  cp /in/package.json .; cp /in/bun.lock .
+  bun install >/dev/null 2>&1
+  cat bun.lock
+' > bun.lock
+```
+
+Verify, still in a container, that frozen-install is consistent (this is what CI runs) and the
+published binary executes:
+
+```bash
+mkdir -p /tmp/lockverify && cp package.json bun.lock /tmp/lockverify/
+docker run --rm -v /tmp/lockverify:/in:ro oven/bun:1.3.13 bash -c '
+  set -e; mkdir -p /w && cd /w; cp /in/package.json .; cp /in/bun.lock .
+  bun install --frozen-lockfile
+  node_modules/agentlocks-linux-*/bin/agentlocks --version
+'
+```
+
+Then commit the wiring:
+
+```bash
 git add package.json bun.lock
 git commit -m "release: wire optionalDependencies for X.Y.Z"
 ```
+
+Never weaken the host's `min-release-age` rule to install your own fresh release. The container is
+isolated, so installing a sub-7-day package there is safe; only the inert lockfile returns to the host.
 
 ## 4. Publish the main package
 
@@ -103,9 +136,9 @@ npm publish --access public           # publishConfig.access is already public
 
 ## 5. Verify on a clean machine with no Bun
 
-This is the real gate for the whole install story. Run it somewhere Bun is not installed (a fresh
-container is easiest) so a green result proves the prebuilt binary, not a stray system Bun, did the
-work:
+This is the real gate for the whole install story. Run it in a fresh container: it has no Bun (so a
+green result proves the prebuilt binary, not a stray system Bun, did the work) and no `min-release-age`
+rule (so it can install the release you published minutes ago, which the host refuses for 7 days):
 
 ```bash
 docker run --rm node:18-slim bash -lc \
@@ -120,12 +153,12 @@ exercises the `linux-x64` binary through the Node launcher. For full coverage re
 
 ```bash
 git tag -a vX.Y.Z -m "Release X.Y.Z"
-git push origin launch-polish
+git push origin main
 git push origin vX.Y.Z
 ```
 
-Then open a PR to merge `launch-polish` into `main` (or merge it), so the released tree, including
-the committed `optionalDependencies` and lockfile, lands on the default branch.
+If you cut the release on a separate branch instead of `main`, merge it into `main` now so the
+released tree, including the committed `optionalDependencies` and lockfile, lands on the default branch.
 
 ## If something goes wrong
 

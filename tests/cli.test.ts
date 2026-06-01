@@ -590,7 +590,6 @@ test("init check json is compact by default with verbose full output", async () 
       instructions_path?: unknown;
       change_count?: unknown;
       changes?: Array<Record<string, unknown>>;
-      recommended_scripts?: unknown;
       root?: unknown;
     };
     expect(payload.kind).toBe("init");
@@ -604,11 +603,6 @@ test("init check json is compact by default with verbose full output", async () 
       path: ".agentlocks/locks",
       action: "would_create",
     });
-    expect(payload.recommended_scripts).toEqual([
-      "agentlocks",
-      "agentlocks:init",
-      "agentlocks:status",
-    ]);
     expect(payload.root).toBeUndefined();
 
     const verbose = await runCli(["init", "--check", "--json", "--verbose"], workspace);

@@ -56,19 +56,12 @@ export interface InitResult {
   resolvedHarness: Exclude<InitHarness, "auto">;
   instructionsPath: string;
   changes: InitChange[];
-  recommendedScripts: Record<string, string>;
 }
 
 // Agentlocks instructions always live in AGENTS.md. Claude Code and Codex both
 // read it, so there is no harness-specific instructions file; the harness only
 // selects which hook scripts are installed below.
 const AGENTS_INSTRUCTIONS_PATH = "AGENTS.md";
-
-const RECOMMENDED_PACKAGE_SCRIPTS: Record<string, string> = {
-  agentlocks: "agentlocks",
-  "agentlocks:status": "agentlocks status",
-  "agentlocks:init": "agentlocks init",
-};
 
 export const CLAUDE_AGENTLOCKS_AGENT_HOOK_PATH = ".claude/hooks/agentlocks-agent-env.mjs";
 const CLAUDE_SETTINGS_PATH = ".claude/settings.json";
@@ -114,9 +107,6 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   if (config.init.updateGitignore) {
     changes.push(await ensureGitignore(config, check));
   }
-  if (config.init.updatePackageScripts) {
-    changes.push(await ensurePackageScripts(config, check));
-  }
 
   const checkFailed =
     check &&
@@ -129,7 +119,6 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
     resolvedHarness,
     instructionsPath: AGENTS_INSTRUCTIONS_PATH,
     changes,
-    recommendedScripts: RECOMMENDED_PACKAGE_SCRIPTS,
   };
 }
 
@@ -164,7 +153,7 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "acquire",
     "<paths...>",
     "--reason",
-    '"<intent>"',
+    "<intent>",
   ]);
   const expand = renderAgentlocksCommand(config, ["expand", "--lock", "<lock_id>", "<paths...>"]);
   const refresh = renderAgentlocksCommand(config, ["refresh", "<lock_id>"]);
@@ -172,9 +161,9 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "commit",
     "<paths...>",
     "--reason",
-    '"<commit intent>"',
+    "<commit intent>",
     "-m",
-    '"<message>"',
+    "<message>",
   ]);
   const gitBegin = renderAgentlocksCommand(config, [
     "git",
@@ -182,7 +171,7 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "--refresh-lock",
     "<lock_id>",
     "--reason",
-    '"<commit intent>"',
+    "<commit intent>",
   ]);
   const gitEnd = renderAgentlocksCommand(config, [
     "git",
@@ -204,8 +193,8 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     `- Expand before touching newly needed files with \`${expand}\`; do not edit outside the held lock set.`,
     `- Refresh before edit batches and after long tests with \`${refresh}\`.`,
     "- **To commit, prefer the one-command path:**",
-    `  \`${commit}\`. It locks the paths and the shared Git index, stages and commits ONLY those paths`,
-    "  (pathspec-scoped), fences the index against a reclaimed lease, and releases — no lock ids to thread.",
+    `  \`${commit}\`. It locks the paths and the shared Git index, stages and commits only those paths`,
+    "  (pathspec-scoped), fences the index against a reclaimed lease, and releases, with no lock ids to thread.",
     "  Add `--keep` to retain the file lock for follow-up edits.",
     `- Only if you must drive \`git\` yourself: \`${gitBegin}\` (it prints the git lock id then a fence token),`,
     "  stage only paths covered by your held locks, `git commit`, then",
@@ -418,36 +407,6 @@ async function ensureGitignore(
     check ? (exists ? "would_update" : "would_create") : exists ? "updated" : "created",
     "ignore local lock state",
   );
-}
-
-async function ensurePackageScripts(
-  config: ResolvedAgentlocksConfig,
-  check: boolean,
-): Promise<InitChange> {
-  const packagePath = path.join(config.root, "package.json");
-  const relative = "package.json";
-  if (!(await pathExists(packagePath))) {
-    return change(relative, "reported", "no package.json; add the recommended scripts manually");
-  }
-
-  const parsed = JSON.parse(await readText(packagePath)) as {
-    scripts?: Record<string, string>;
-    [key: string]: unknown;
-  };
-  const scripts = parsed.scripts ?? {};
-  let changed = false;
-  for (const [name, command] of Object.entries(RECOMMENDED_PACKAGE_SCRIPTS)) {
-    if (scripts[name]) continue;
-    scripts[name] = command;
-    changed = true;
-  }
-  if (!changed) return change(relative, "unchanged", "recommended scripts exist");
-
-  if (!check) {
-    parsed.scripts = scripts;
-    await writeText(packagePath, `${formatJsonArtifact(parsed)}\n`);
-  }
-  return change(relative, check ? "would_update" : "updated", "recommended scripts added");
 }
 
 function upsertMarkedBlock(current: string, block: string): string {

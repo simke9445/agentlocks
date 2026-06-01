@@ -40,8 +40,5 @@ function compactInitResult(
       path: change.path,
       action: change.action,
     })),
-    recommended_scripts: Object.keys(result.recommendedScripts).sort((left, right) =>
-      left.localeCompare(right),
-    ),
   };
 }

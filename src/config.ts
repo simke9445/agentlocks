@@ -53,7 +53,6 @@ export interface AgentlocksAgentsConfig {
 export interface AgentlocksInitConfig {
   updateAgents?: boolean;
   updateGitignore?: boolean;
-  updatePackageScripts?: boolean;
 }
 
 export interface AgentlocksConfig {
@@ -159,7 +158,6 @@ export function resolveAgentlocksConfig(
     init: {
       updateAgents: config.init?.updateAgents ?? true,
       updateGitignore: config.init?.updateGitignore ?? true,
-      updatePackageScripts: config.init?.updatePackageScripts ?? true,
     },
   };
 }

@@ -178,23 +178,10 @@ agentlocks init --harness claude-code
 | `.claude/hooks/agentlocks-agent-env.mjs` | Per-Bash-call agent id hook; **by default also runs `git verify` before a `git commit` tool-call** (one script, advisory; pass `--no-commit-hook` for the id-injection-only body) |
 | `.codex/hooks.json` + `.codex/hooks/agentlocks-git-verify.mjs` | Codex `PreToolUse` commit-hook backstop when `--harness codex` is used (project-local hooks need trust before they run) |
 | `.gitignore` | Adds `.agentlocks/` |
-| `package.json` | Adds missing recommended scripts when a package file exists |
 
 The commit-hook backstop is advisory: it surfaces staged-but-unlocked paths before a `git commit`
 tool-call and **never blocks the commit**. It is installed by default; `agentlocks init
 --no-commit-hook` keeps the original id-injection-only Claude hook and skips the Codex hook.
-
-Recommended host scripts, inserted when absent:
-
-```json
-{
-  "scripts": {
-    "agentlocks": "agentlocks",
-    "agentlocks:status": "agentlocks status",
-    "agentlocks:init": "agentlocks init"
-  }
-}
-```
 
 ## Quick Start
 
@@ -377,7 +364,6 @@ export default {
   init: {
     updateAgents: true,
     updateGitignore: true,
-    updatePackageScripts: true,
   },
 } satisfies AgentlocksConfig;
 ```
@@ -446,7 +432,6 @@ bin/agentlocks.ts
           -> agentlocks.config.ts
           -> AGENTS.md marked block
           -> .gitignore
-          -> package.json scripts
         -> capabilities / robot-docs / doctor
           -> stdout text or compact JSON
 ```
@@ -521,7 +506,7 @@ Interactive Agentlocks commands check npm at most once per day and print a stder
 newer version is available:
 
 ```text
-New Agentlocks version available: 0.1.1 -> 0.1.2
+New Agentlocks version available: 0.6.0 -> 0.6.1
 Update with: bun update -g --latest agentlocks
 npm users: npm install -g agentlocks@latest
 ```

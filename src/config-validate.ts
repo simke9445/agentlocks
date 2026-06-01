@@ -56,7 +56,6 @@ const SECTION_TYPES: Record<string, Record<string, Scalar>> = {
   init: {
     updateAgents: "boolean",
     updateGitignore: "boolean",
-    updatePackageScripts: "boolean",
   },
 };
 

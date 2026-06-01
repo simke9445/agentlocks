@@ -27,7 +27,8 @@ test("init creates support files in an empty repo", async () => {
     expect(agents).toContain("Agentlocks advisory locks");
     expect(agents).toContain("agentlocks acquire");
     expect(gitignore).toContain(".agentlocks/");
-    expect(packageJson.scripts.agentlocks).toBe("agentlocks");
+    // init no longer injects scripts into the host package.json.
+    expect(packageJson.scripts.agentlocks).toBeUndefined();
     await expect(readFile(path.join(workspace, "agentlocks.config.ts"), "utf8")).resolves.toContain(
       'harnesses: ["codex", "claude-code"]',
     );
@@ -57,7 +58,7 @@ test("init updates existing AGENTS and .gitignore without overwriting unrelated 
     expect(gitignore).toContain("node_modules/");
     expect(gitignore).toContain(".agentlocks/");
     expect(packageJson.scripts.test).toBe("bun test");
-    expect(packageJson.scripts.agentlocks).toBe("agentlocks");
+    expect(packageJson.scripts.agentlocks).toBeUndefined();
   });
 });
 

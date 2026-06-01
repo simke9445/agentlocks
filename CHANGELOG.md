@@ -3,6 +3,17 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Changed
+
+- **`agentlocks init` no longer injects scripts into the host `package.json`.** The added
+  `agentlocks` / `agentlocks:status` / `agentlocks:init` entries were thin aliases of the global CLI
+  and reached into the host manifest for little benefit. The `init.updatePackageScripts` config field
+  and the `recommended_scripts` field of `init --json` are removed.
+- **The generated `AGENTS.md` coordination block renders cleaner command examples**: consistent
+  placeholder quoting (`--reason '<intent>'` rather than `--reason '"<intent>"'`) and no stray em-dash.
+
 ## 0.6.0
 
 A global install now works without Bun, the project has CI, and the multi-process lock core was

@@ -3,6 +3,64 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## 0.6.0
+
+A global install now works without Bun, the project has CI, and the multi-process lock core was
+hardened against a real double-acquire race. The install model, the agent-ergonomics surface, the
+`doctor`, and the locking primitives all got a focused polish pass.
+
+### Added
+
+- **`npm install -g agentlocks` works with no Bun on the machine.** The CLI now ships as a
+  self-contained, Bun-embedded binary per platform (`bun build --compile`), published as the
+  `agentlocks-<platform>` optional dependencies; a small Node launcher (`bin/agentlocks.mjs`)
+  resolves the right binary and execs it, falling back to running the TypeScript entry under Bun
+  for development or unsupported platforms. Previously the bin was `#!/usr/bin/env bun`, so an npm
+  install without Bun on `PATH` produced a binary that died with `env: bun: No such file or
+  directory`. `engines` moves from `bun` to `node >=18`. An install smoke test
+  (`scripts/smoke-install.mjs`, run per-OS in CI) builds the binary and runs the launcher with no
+  Bun reachable.
+- **`agentlocks --version`** prints the package version and is listed in `--help`. Previously the
+  most common version probe dead-ended with `unknown option '--version'`.
+- **A CI workflow** (`.github/workflows/ci.yml`) runs `bun test`, `tsc --noEmit`, and `biome check`
+  on push and pull request, plus a Linux + macOS install-smoke job; the README carries a CI badge.
+
+### Changed
+
+- **Bare `agentlocks` and command groups now print help instead of an error.** `agentlocks`,
+  `agentlocks robot-docs`, and `agentlocks git` with no subcommand used to print
+  `agentlocks error: (outputHelp)`; they now print help and exit 0.
+- **More errors carry a `next:` recovery command.** A missing required option appends the corrected
+  command (for example, `next: agentlocks acquire <paths> --reason <text>`), and the
+  high-frequency lock-usage errors (missing lock id, lock-not-found) point at
+  `agentlocks status --id-only`.
+- **`doctor` no longer reports `ok:false` right after a normal `init`.** It validates against
+  whichever install variant is present (commit-hook or `--no-commit-hook`), only warns about a
+  Claude session-scoped identity when the hook is absent, treats a freshly-held registry mutex as
+  healthy, and aligns its stale-mutex threshold with the registry's reclaim model. Findings carry
+  exact `next:` commands, and the text summary mirrors the JSON.
+
+### Fixed
+
+- **Registry mutex hardening (multi-process correctness).** An operation that stalled past the 30s
+  stale threshold could be reclaimed by a second process so both ran concurrently (a double-acquire
+  of the same path), and a thawed holder could delete a successor's mutex. `owner.json` now carries
+  a per-acquire nonce, so a holder only ever removes a mutex it still owns, and stale-mutex reclaim
+  consults `owner.json` and refuses to evict a provably-live same-host process (bounded by a
+  ceiling). Proven by a new concurrency and fuzz suite (`tests/concurrency.test.ts`).
+- **Codex liveness no longer steals a live lock.** A present-but-stale Codex `session_index` entry
+  was classified `dead` with zero grace, unlike the Claude probe's stale-to-`unknown` rule; since
+  Codex does not refresh `updated_at` every turn, a live agent's lock could be reclaimed. It now
+  falls through to the unknown-liveness grace.
+- **`agentlocks commit` no longer exits 0 after losing the `@git/index` fence** when the commit
+  finishes inside the keep-alive interval; it re-verifies the fence after the commit lands.
+- **The update notifier now fires.** `REGISTRY_URL` pointed at the nonexistent scoped package
+  `@simke9445/agentlocks` (a leftover from the 0.5.0 rename), so every check 404'd and the
+  "new version available" notice never appeared since 0.5.0. It now derives from the package name.
+- **README accuracy.** The Quick Demo's `git begin`/`git end` example, the `identify --json` and
+  error-JSON samples, and the install instructions were corrected so every documented
+  "verify it yourself" command reproduces.
+
 ## 0.5.1
 
 ### Changed

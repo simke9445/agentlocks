@@ -9,10 +9,8 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/agentlocks"><img src="https://img.shields.io/npm/v/agentlocks?color=blue&label=npm" alt="npm version"></a>
   <a href="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml"><img src="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black" alt="Bun >= 1.2">
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6" alt="TypeScript">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
-  <img src="https://img.shields.io/badge/status-pre--release-orange" alt="pre-release">
 </p>
 
 Run two coding agents in the same repository (or one agent with subagents) and they start
@@ -31,9 +29,10 @@ npm install -g agentlocks      # or: bun install -g agentlocks
 agentlocks --help
 ```
 
-Bun `>=1.2` must be on `PATH` at runtime; the executable runs through `#!/usr/bin/env bun`,
-even when installed through npm. Then run `agentlocks init` once inside each repo you want to
-coordinate.
+`npm install -g` works with no Bun on the machine: Agentlocks ships a self-contained, prebuilt
+binary for your platform, and a small Node launcher selects it. (Bun is only needed to use the
+library API or to build from source.) Then run `agentlocks init` once inside each repo you want
+to coordinate.
 
 ## See it in 20 seconds
 
@@ -77,7 +76,7 @@ Identity just works, with no setup and no flags:
 
 ```text
 $ agentlocks identify --json
-{"kind":"identified","agent_id":"claude-code:0fd188d5-…","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code"}
+{"kind":"identified","exitCode":0,"agent_id":"claude-code:0fd188d5-…","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code","harness_scope":"session"}
 ```
 
 Agentlocks even brings its own harness integration: `agentlocks init --harness claude-code`
@@ -135,9 +134,10 @@ file_lock="$(agentlocks acquire app.ts --reason "edit app" --id-only)"
 agentlocks expand --lock "$file_lock" README.md --id-only
 agentlocks refresh "$file_lock" --id-only
 
-git_lock="$(agentlocks git begin --refresh-lock "$file_lock" --reason "commit demo" --id-only)"
+# git begin --id-only prints two lines: the lock id, then a fence token. Read both.
+{ read git_lock; read git_token; } < <(agentlocks git begin --refresh-lock "$file_lock" --reason "commit demo" --id-only)
 agentlocks status --json
-agentlocks git end "$git_lock" --release-lock "$file_lock" --id-only
+agentlocks git end "$git_lock" --git-token "$git_token" --release-lock "$file_lock" --id-only
 
 agentlocks prune --dry-run --json
 agentlocks doctor --json
@@ -146,7 +146,7 @@ agentlocks doctor --json
 Expected shape:
 
 ```text
-identify shows a harness source such as CODEX_THREAD_ID or AGENTLOCKS_HARNESS_AGENT_ID.
+identify shows a harness source such as CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, or AGENTLOCKS_HARNESS_AGENT_ID.
 status shows two locks while the file lock and @git/index lock are held.
 git end prints the released git lock id and file lock id.
 prune --dry-run reports pruned_count 0 in a fresh repo.
@@ -299,7 +299,7 @@ harness integrations and recovery from outside the original harness agent.
 When `--json` is present, parse and runtime errors use compact payloads shaped like:
 
 ```json
-{"ok":false,"code":"commander.unknownOption","message":"error: unknown option '--jason'","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
+{"ok":false,"code":"commander.unknownOption","message":"error: unknown option '--jason'\n(Did you mean --json?)","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
 ```
 
 ## Configuration
@@ -486,8 +486,8 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
 
 ## Limitations
 
-- Agentlocks is pre-release, and the CLI requires Bun at runtime.
-- There is no checked-in GitHub Actions workflow, so this README does not show a CI badge.
+- Agentlocks is pre-1.0: the lock-record schema and CLI contract can change between minor versions,
+  with no migration layer (see [CHANGELOG.md](CHANGELOG.md)).
 - Agentlocks coordinates one local worktree through files under `.agentlocks/locks`; it is not a
   networked lock server.
 - Advisory locks work only when participants use Agentlocks before editing and staging.
@@ -498,8 +498,6 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
   repository-specific defaults, or command aliases.
 - There are no compatibility layers, deprecated command names, or migration tools for previous
   internal layouts or schemas.
-- `agentlocks --version` is not implemented; use `agentlocks capabilities --json` for the current
-  package version.
 
 ## FAQ
 

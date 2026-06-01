@@ -113,6 +113,26 @@ test("a missing required option teaches the corrected command via next:", async 
   }
 });
 
+test("missing lock id error points the agent at status --id-only via next:", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-missing-id-"));
+  try {
+    const text = await runCli(["release"], workspace);
+    expect(text.code).toBe(2);
+    expect(text.stderr).toContain("At least one lock id is required for release");
+    expect(text.stderr).toContain("next: agentlocks status --id-only");
+
+    const json = await runCli(["release", "--json"], workspace);
+    const payload = JSON.parse(json.stdout) as {
+      code?: unknown;
+      details?: { suggestion?: { command?: unknown } };
+    };
+    expect(payload.code).toBe("missing_lock_id");
+    expect(payload.details?.suggestion?.command).toBe("agentlocks status --id-only");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("parse lock acquire command", () => {
   const parsed = parseCliArgs([
     "acquire",

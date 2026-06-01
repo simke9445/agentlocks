@@ -503,7 +503,12 @@ function renderLockIds(command: LockCommand, results: LockOperationResult[]): st
 
 function requireLockIds(lockIds: string[], action: string): string[] {
   if (lockIds.length === 0) {
-    throw new LockCommandError(`At least one lock id is required for ${action}.`, 2);
+    throw new LockCommandError(
+      `At least one lock id is required for ${action}.`,
+      2,
+      "missing_lock_id",
+      "agentlocks status --id-only",
+    );
   }
   return lockIds;
 }

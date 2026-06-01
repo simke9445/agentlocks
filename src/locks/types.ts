@@ -262,11 +262,14 @@ export type LockCommand =
 export class LockCommandError extends Error {
   readonly exitCode: number;
   readonly code: string;
+  // Optional copy-pasteable recovery command surfaced to the agent as a `next:` line (Axiom 6).
+  readonly next?: string;
 
-  constructor(message: string, exitCode: number, code = "lock_command_error") {
+  constructor(message: string, exitCode: number, code = "lock_command_error", next?: string) {
     super(message);
     this.name = "LockCommandError";
     this.exitCode = exitCode;
     this.code = code;
+    if (next !== undefined) this.next = next;
   }
 }

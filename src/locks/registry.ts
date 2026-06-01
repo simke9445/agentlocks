@@ -204,7 +204,14 @@ export class FileLockRegistry {
     return this.withMutex(async () => {
       const locks = await this.readActiveLocks();
       const existing = locks.find((lock) => lock.lockId === params.lockId);
-      if (!existing) throw new LockCommandError(`Lock not found: ${params.lockId}`, 2);
+      if (!existing) {
+        throw new LockCommandError(
+          `Lock not found: ${params.lockId}`,
+          2,
+          "lock_not_found",
+          "agentlocks status --id-only",
+        );
+      }
       this.assertLockOwner(existing, params.agentId ?? null);
 
       const resources = unionResources(existing.resources, requested);
@@ -728,7 +735,14 @@ export class FileLockRegistry {
 
   private async requireLock(lockId: string): Promise<FileLockRecord> {
     const lockPath = this.lockPath(lockId);
-    if (!(await pathExists(lockPath))) throw new LockCommandError(`Lock not found: ${lockId}`, 2);
+    if (!(await pathExists(lockPath))) {
+      throw new LockCommandError(
+        `Lock not found: ${lockId}`,
+        2,
+        "lock_not_found",
+        "agentlocks status --id-only",
+      );
+    }
     return JSON.parse(await readText(lockPath)) as FileLockRecord;
   }
 

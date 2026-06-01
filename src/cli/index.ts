@@ -64,6 +64,13 @@ function cliErrorCode(error: unknown): string {
   return typeof code === "string" && code.length > 0 ? code : "cli_error";
 }
 
+// A LockCommandError may carry a copy-pasteable recovery command (e.g. a missing lock id points
+// at `agentlocks status --id-only`); surface it as the suggestion so it renders as a next: line.
+function lockErrorNext(error: unknown): string | null {
+  const next = typeof error === "object" && error !== null ? Reflect.get(error, "next") : null;
+  return typeof next === "string" && next.length > 0 ? next : null;
+}
+
 function cliErrorPayload(
   error: unknown,
   message: string,
@@ -109,6 +116,8 @@ function cliErrorSuggestion(
   message: string,
   argv: string[],
 ): CliErrorSuggestion | null {
+  const lockNext = lockErrorNext(error);
+  if (lockNext) return { command: lockNext };
   const code = cliErrorCode(error);
   if (code === "commander.unknownOption") return flagSuggestion(message, argv);
   if (code === "commander.unknownCommand") return commandSuggestion(message, argv);

@@ -1,4 +1,5 @@
 import { Command, CommanderError, InvalidArgumentError, type OutputConfiguration } from "commander";
+import packageJson from "../../package.json";
 import type { InitHarness } from "../init";
 import { type LockCommand, LockCommandError } from "../locks/types";
 import type { CapabilitiesCommandOptions } from "./capabilities";
@@ -134,7 +135,16 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   try {
     program.parse(normalizeHelpAlias(effectiveArgv), { from: "user" });
   } catch (error) {
-    if (error instanceof CommanderError && error.code === "commander.helpDisplayed") {
+    // commander.helpDisplayed = explicit --help; commander.help = bare invocation or a
+    // command group with no subcommand (`agentlocks`, `robot-docs`, `git`); commander.version
+    // = --version. All three are informational, not errors — return the buffered text so main
+    // prints it and exits 0, instead of leaking commander's "(outputHelp)" sentinel as an error.
+    if (
+      error instanceof CommanderError &&
+      (error.code === "commander.helpDisplayed" ||
+        error.code === "commander.help" ||
+        error.code === "commander.version")
+    ) {
       return { help: true, helpText: helpBuffer || program.helpInformation() };
     }
     throw error;
@@ -153,6 +163,7 @@ function createProgram(onCommand?: (command: CliCommand) => void): Command {
   const program = new Command()
     .name("agentlocks")
     .description("Local advisory locking for shared repository worktrees.")
+    .version(packageJson.version, "-V, --version", "Print the agentlocks version and exit.")
     .showHelpAfterError()
     .allowExcessArguments(false)
     .exitOverride()

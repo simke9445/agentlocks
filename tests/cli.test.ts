@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import packageJson from "../package.json";
 import { helpText, parseCliArgs } from "../src/cli/program";
 
 const execFileAsync = promisify(execFile);
@@ -63,6 +64,53 @@ test("nested help aliases resolve to subcommand help", () => {
   const gitAlias = parseCliArgs(["git", "help", "begin"]);
   expect(gitAlias.help).toBe(true);
   expect(gitAlias.helpText).toContain("@git/index");
+});
+
+test("bare invocation returns help, never leaks commander's (outputHelp)", () => {
+  const parsed = parseCliArgs([]);
+  expect(parsed.help).toBe(true);
+  expect(parsed.command).toBeUndefined();
+  expect(parsed.helpText ?? "").toContain("acquire");
+  expect(parsed.helpText ?? "").not.toContain("(outputHelp)");
+});
+
+test("a command group with no subcommand returns help, not an error", () => {
+  for (const argv of [["robot-docs"], ["git"]]) {
+    const parsed = parseCliArgs(argv);
+    expect(parsed.help).toBe(true);
+    expect(parsed.helpText ?? "").not.toContain("(outputHelp)");
+  }
+});
+
+test("--version resolves to the package version", () => {
+  const parsed = parseCliArgs(["--version"]);
+  expect(parsed.help).toBe(true);
+  expect(parsed.helpText ?? "").toContain(packageJson.version);
+});
+
+test("agentlocks with no args prints help on stdout and exits 0", async () => {
+  const result = await runCli([]);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("acquire");
+  expect(`${result.stdout}${result.stderr}`).not.toContain("(outputHelp)");
+});
+
+test("agentlocks --version prints the version and exits 0", async () => {
+  const result = await runCli(["--version"]);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain(packageJson.version);
+});
+
+test("a missing required option teaches the corrected command via next:", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-missing-opt-"));
+  try {
+    const result = await runCli(["acquire", "src/foo.ts"], workspace);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("required option '--reason");
+    expect(result.stderr).toContain("next: agentlocks acquire src/foo.ts --reason");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("parse lock acquire command", () => {

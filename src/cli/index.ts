@@ -94,9 +94,9 @@ function cliErrorPayload(
 }
 
 interface CliErrorSuggestion {
-  replace: string;
-  with: string;
   command: string;
+  replace?: string;
+  with?: string;
 }
 
 function renderCliErrorMessage(message: string, suggestion: CliErrorSuggestion | null): string {
@@ -112,7 +112,23 @@ function cliErrorSuggestion(
   const code = cliErrorCode(error);
   if (code === "commander.unknownOption") return flagSuggestion(message, argv);
   if (code === "commander.unknownCommand") return commandSuggestion(message, argv);
+  if (code === "commander.missingMandatoryOptionValue") {
+    return missingOptionSuggestion(message, argv);
+  }
   return null;
+}
+
+// A missing required option ("required option '--reason <text>' not specified") should not
+// dead-end: name the corrected command with the flag appended and its placeholder kept visible,
+// so the agent learns the exact invocation. (Axiom 6 — every error names the exact fix.)
+function missingOptionSuggestion(message: string, argv: string[]): CliErrorSuggestion | null {
+  const spec = extractQuotedValue(message, "required option");
+  if (!spec) return null;
+  const flag = spec.split(/\s+/)[0];
+  if (!flag) return null;
+  const placeholder = spec.slice(flag.length).trim() || "<value>";
+  const base = ["agentlocks", ...argv].map(shellQuote).join(" ");
+  return { with: flag, command: `${base} ${flag} ${placeholder}` };
 }
 
 function flagSuggestion(message: string, argv: string[]): CliErrorSuggestion | null {

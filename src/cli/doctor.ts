@@ -51,8 +51,15 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
   if (!config.configFound) configCheck.next = renderAgentlocksCommand(config, ["init", "--check"]);
   checks.push(configCheck);
 
+  const initCommand = renderAgentlocksCommand(config, ["init"]);
   checks.push(
-    await pathCheck("lock_root", config.lockRoot, "lock root exists", "lock root missing"),
+    await pathCheck(
+      "lock_root",
+      config.lockRoot,
+      "lock root exists",
+      "lock root missing",
+      initCommand,
+    ),
   );
   checks.push(
     await pathCheck(
@@ -60,13 +67,23 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
       path.join(config.lockRoot, "active"),
       "active lock directory exists",
       "active lock directory missing",
+      initCommand,
     ),
   );
   checks.push(await mutexCheck(path.join(config.lockRoot, ".mutex")));
   checks.push(...(await harnessChecks(config.root, config)));
 
   const initHarness = doctorInitHarness(process.env);
-  const init = await runInit({ root: config.root, check: true, harness: initHarness });
+  // Validate against the DEFAULT install: `init` installs the commit-hook backstop unless
+  // --no-commit-hook is passed, so doctor must check with commitHook:true. Otherwise it compares
+  // against the id-injection-only body and flags the installed hook as perpetual drift —
+  // reporting ok:false right after a normal `init`.
+  const init = await runInit({
+    root: config.root,
+    check: true,
+    harness: initHarness,
+    commitHook: true,
+  });
   const initDrift = init.changes.filter((change) =>
     ["would_create", "would_update", "reported"].includes(change.action),
   );
@@ -100,11 +117,12 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
 
 export function renderDoctorText(result: DoctorResult): string {
   if (result.ok) return "doctor: ok";
+  const findings = result.checks.filter((check) => check.status !== "ok");
   return [
-    "doctor: findings",
-    ...result.checks
-      .filter((check) => check.status !== "ok")
-      .map((check) => `${check.status}: ${check.id} - ${check.message}${renderNext(check)}`),
+    `doctor: ${findings.length} finding(s) (${result.summary.error} error, ${result.summary.warn} warn)`,
+    ...findings.map(
+      (check) => `${check.status}: ${check.id} - ${check.message}${renderNext(check)}`,
+    ),
   ].join("\n");
 }
 
@@ -117,28 +135,37 @@ async function pathCheck(
   target: string,
   okMessage: string,
   missingMessage: string,
+  next?: string,
 ): Promise<DoctorCheck> {
   const exists = await pathExists(target);
-  return {
+  const check: DoctorCheck = {
     id,
     status: exists ? "ok" : "warn",
     message: exists ? okMessage : missingMessage,
   };
+  if (!exists && next) check.next = next;
+  return check;
 }
 
 async function mutexCheck(mutexPath: string): Promise<DoctorCheck> {
   try {
     const stat = await fs.stat(mutexPath);
     const ageMs = Date.now() - stat.mtimeMs;
-    return {
+    const stale = ageMs > REGISTRY_MUTEX_STALE_MS;
+    // A fresh mutex is normal: a lock operation is mid-flight and holding it. Only a mutex older
+    // than the stale threshold is a finding (a crashed holder, which Agentlocks reclaims on the
+    // next mutating command). Reporting a transient held mutex as a warning made doctor flap.
+    const check: DoctorCheck = {
       id: "registry_mutex",
-      status: ageMs > REGISTRY_MUTEX_STALE_MS ? "warn" : "warn",
-      message:
-        ageMs > REGISTRY_MUTEX_STALE_MS
-          ? "registry mutex appears stale"
-          : "registry mutex currently exists",
-      next: "retry the lock command; Agentlocks reclaims stale mutexes automatically",
+      status: stale ? "warn" : "ok",
+      message: stale
+        ? `registry mutex appears stale (${Math.round(ageMs / 1000)}s old)`
+        : "registry mutex currently held by an active operation",
     };
+    if (stale) {
+      check.next = "retry the lock command; Agentlocks reclaims stale mutexes automatically";
+    }
+    return check;
   } catch (error) {
     if (isNotFound(error)) {
       return {
@@ -184,14 +211,21 @@ async function harnessChecks(
       fallbackPrefix: config.owner.fallbackPrefix,
     });
     const sessionScope = owner.harness === "claude-code" && owner.harnessScope === "session";
+    // A bare session-scoped identity is only a problem when the hook is ABSENT: then subagents
+    // share one identity. With the hook installed, each Bash tool-call gets a scoped id, and a
+    // direct `doctor` invocation legitimately reads a session-scoped id — so don't nag (this was
+    // the false positive that made doctor report ok:false right after init --harness claude-code).
+    const sessionScopeProblem = sessionScope && !hookExists;
     const agentScopeCheck: DoctorCheck = {
       id: "agent_session_scope",
-      status: sessionScope ? "warn" : "ok",
-      message: sessionScope
-        ? `agent ${lockOwnerAgentId(owner)} is Claude session-scoped, not agent-scoped`
-        : "agent identity is harness-scoped or explicitly configured",
+      status: sessionScopeProblem ? "warn" : "ok",
+      message: sessionScopeProblem
+        ? `agent ${lockOwnerAgentId(owner)} is Claude session-scoped and no hook scopes subagents`
+        : sessionScope
+          ? `agent ${lockOwnerAgentId(owner)} is session-scoped; the installed hook scopes subagent locks per tool-call`
+          : "agent identity is harness-scoped or explicitly configured",
     };
-    if (sessionScope) {
+    if (sessionScopeProblem) {
       agentScopeCheck.next = renderAgentlocksCommand(config, ["init", "--harness", "claude-code"]);
     }
     checks.push(agentScopeCheck);
@@ -206,6 +240,7 @@ async function harnessChecks(
       id: "codex_thread_id",
       status: "warn",
       message: `${CODEX_OWNER_ENV_KEY} is unavailable; Codex agent detection will fall back`,
+      next: renderAgentlocksCommand(config, ["identify", "--json"]),
     });
   }
 

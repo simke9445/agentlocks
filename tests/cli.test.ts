@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -697,6 +697,22 @@ test("doctor json reports read-only health checks", async () => {
   }
 });
 
+test("a fresh registry mutex is healthy, not a warning", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-mutex-"));
+  try {
+    await mkdir(path.join(workspace, ".agentlocks/locks/active"), { recursive: true });
+    await mkdir(path.join(workspace, ".agentlocks/locks/.mutex"), { recursive: true });
+    const result = await runCli(["doctor", "--json"], workspace);
+    const payload = JSON.parse(result.stdout) as {
+      checks?: Array<{ id?: unknown; status?: unknown }>;
+    };
+    const mutex = payload.checks?.find((check) => check.id === "registry_mutex");
+    expect(mutex?.status).toBe("ok");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("doctor reports Claude Code hook and session-scope agent diagnostics", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-doctor-claude-"));
   try {
@@ -737,13 +753,38 @@ test("doctor reports Claude Code hook and session-scope agent diagnostics", asyn
       AGENTLOCKS_HARNESS_AGENT_ID: "claude-code:claude-session:main",
     });
     const afterPayload = JSON.parse(afterInit.stdout) as {
+      ok?: unknown;
       checks?: Array<{ id?: unknown; status?: unknown }>;
     };
     expect(afterPayload.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "claude_agent_hook", status: "ok" }),
         expect.objectContaining({ id: "agent_session_scope", status: "ok" }),
+        expect.objectContaining({ id: "init", status: "ok" }),
       ]),
+    );
+    // After init --harness claude-code, doctor must report healthy: the commit-hook is no longer
+    // flagged as drift (it now checks commitHook:true) and the session-scoped identity is ok.
+    expect(afterPayload.ok).toBe(true);
+    expect(afterInit.code).toBe(0);
+
+    // The real Step 0 repro: a direct invocation with only the ambient session id (no
+    // hook-injected scoped id). With the hook installed on disk, this is still healthy.
+    const directRun = await runCli(["doctor", "--json"], workspace, {
+      CLAUDE_CODE_SESSION_ID: "claude-session",
+      CODEX_THREAD_ID: "",
+      CODEX_CI: "",
+      AGENTLOCKS_AGENT_ID: "",
+      AGENTLOCKS_HARNESS_AGENT_ID: "",
+    });
+    expect(directRun.code).toBe(0);
+    const directPayload = JSON.parse(directRun.stdout) as {
+      ok?: unknown;
+      checks?: Array<{ id?: unknown; status?: unknown }>;
+    };
+    expect(directPayload.ok).toBe(true);
+    expect(directPayload.checks?.find((check) => check.id === "agent_session_scope")?.status).toBe(
+      "ok",
     );
   } finally {
     await rm(workspace, { recursive: true, force: true });

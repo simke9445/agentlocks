@@ -286,6 +286,8 @@ test("randomized concurrent churn stays consistent and still mutually exclusive 
         { cwd: workspace, config },
       );
       const snapshot = status.json as { lock_count: number; lock_ids: string[] };
+      // Non-tautological: lock ids must be unique (no torn or duplicate records under churn).
+      expect(new Set(snapshot.lock_ids).size).toBe(snapshot.lock_ids.length);
       expect(snapshot.lock_count).toBe(snapshot.lock_ids.length);
     }
     // After heavy churn the mutex still enforces mutual exclusion on a fresh hot path.

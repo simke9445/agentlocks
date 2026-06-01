@@ -805,13 +805,15 @@ export class FileLockRegistry {
         try {
           return await operation();
         } finally {
-          // Only delete the mutex if WE still own it. If our hold was reclaimed mid-operation
-          // (we stalled past the stale ceiling) and a successor re-acquired, owner.json now
-          // carries a different nonce — deleting it would evict the live successor and cascade
-          // into further double-entries. A missing/unreadable owner.json is our own (or already
-          // gone), so the force-rm there is a harmless no-op.
+          // Only delete the mutex when we can CONFIRM it is still ours (owner.json carries our
+          // nonce). If our hold was reclaimed mid-operation and a successor re-acquired, the nonce
+          // differs — and if that successor is between its mkdir and its owner.json write, the read
+          // returns null. In BOTH cases we must NOT remove the directory: doing so would evict a
+          // live successor (and, in the null case, make its owner.json write fail with ENOENT). A
+          // genuinely-orphaned dir (reclaimed, no successor yet) is left for the next staleness
+          // reclaim. Never a double-acquire, never a deleted successor.
           const owner = await readMutexOwner(ownerPath);
-          if (!owner || owner.nonce === nonce) {
+          if (owner && owner.nonce === nonce) {
             await fs.rm(this.mutexDir, { recursive: true, force: true });
           }
         }

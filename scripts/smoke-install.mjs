@@ -35,8 +35,9 @@ const builtBinary = path.join(root, "npm", platformDir, "bin", exeName);
 if (!existsSync(builtBinary)) fail(`built binary missing at ${builtBinary}`);
 
 // 2. Stage a fake global install: node_modules/{agentlocks, agentlocks-<platform>}.
-//    A clean HOME (no ~/.bun) plus a stripped PATH guarantees the launcher cannot
-//    fall back to Bun, so a green run proves the prebuilt binary did the work.
+//    AGENTLOCKS_DISABLE_BUN_FALLBACK=1 (set below) makes the launcher refuse the Bun fallback
+//    entirely, so a green run PROVES the prebuilt binary did the work — a stripped PATH + clean
+//    HOME alone are not enough, since findBun also probes absolute paths like /opt/homebrew/bin/bun.
 const stage = mkdtempSync(path.join(os.tmpdir(), "agentlocks-smoke-"));
 const home = path.join(stage, "home");
 mkdirSync(home, { recursive: true });
@@ -59,7 +60,7 @@ writeFileSync(
   JSON.stringify({ name: platformPackage, version: "0.0.0" }),
 );
 const launcher = path.join(mainPkg, "bin", "agentlocks.mjs");
-const noBunEnv = { PATH: "/usr/bin:/bin", HOME: home };
+const noBunEnv = { PATH: "/usr/bin:/bin", HOME: home, AGENTLOCKS_DISABLE_BUN_FALLBACK: "1" };
 
 // 3. --help via the prebuilt binary, no Bun.
 const help = spawnSync(nodeExe, [launcher, "--help"], { env: noBunEnv, encoding: "utf8" });

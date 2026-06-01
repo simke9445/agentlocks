@@ -28,7 +28,9 @@ if (only && selected.length === 0) {
 }
 
 for (const { dir, target } of selected) {
-  const exe = dir.startsWith("win") ? "agentlocks.exe" : "agentlocks";
+  // No Windows target yet (the launcher's win32 path degrades to the Bun fallback); when a
+  // windows-x64 entry is added to TARGETS, use "agentlocks.exe" for it.
+  const exe = "agentlocks";
   const outDir = path.join(root, "npm", dir, "bin");
   mkdirSync(outDir, { recursive: true });
   const outfile = path.join(outDir, exe);

@@ -27,6 +27,9 @@ const AMBIENT_HARNESS_ENV_KEYS: string[] = [
   // Probe-home overrides read inline in session.ts (codexHome / claudeProjectsHome).
   "CODEX_HOME",
   "CLAUDE_CONFIG_DIR",
+  // doctor's harnessChecks reads CODEX_CI to infer a likely-Codex env; scrub it too so the
+  // doctor diagnostics are hermetic when the suite runs inside a Codex CI environment.
+  "CODEX_CI",
 ];
 
 for (const key of AMBIENT_HARNESS_ENV_KEYS) {

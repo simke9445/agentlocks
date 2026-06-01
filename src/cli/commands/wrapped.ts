@@ -171,9 +171,12 @@ async function runCommit(
         });
       }
     }
-    // Final fence check: a sub-interval commit (TTL < the keep-alive interval) can complete
-    // before the keep-alive timer ever fires, so re-verify once after the commit lands —
-    // otherwise a commit that raced a reclaim/re-mint could exit 0 despite losing the lease.
+  } finally {
+    if (timer) clearInterval(timer);
+    // Final fence check — AFTER the keep-alive timer is stopped (so it cannot race this) and
+    // BEFORE git-end releases the lease: a sub-interval commit (TTL < the keep-alive interval)
+    // can finish before the timer ever fires, so a commit that raced a reclaim/re-mint would
+    // otherwise exit 0 despite losing the lease.
     if (gitToken && !fenceLost && gitCode === 0) {
       const post = await verifyGitFence(
         gitLockId,
@@ -184,8 +187,6 @@ async function runCommit(
       );
       if (post.exitCode !== 0) fenceLost = post.stderr ?? "@git/index fence lost";
     }
-  } finally {
-    if (timer) clearInterval(timer);
     try {
       await executeLockCommand(
         {

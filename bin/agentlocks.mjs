@@ -47,19 +47,31 @@ function findBun() {
   return null;
 }
 
+// Run a resolved executable, forwarding stdio + exit status. Returns the spawn error (without
+// exiting) when the binary could not be started, so the caller can fall through to the next
+// option instead of crashing with a raw stack trace.
 function exec(command, commandArgs) {
   const result = spawnSync(command, commandArgs, { stdio: "inherit" });
-  if (result.error) throw result.error;
+  if (result.error) return result.error;
+  if (result.signal) {
+    // Re-raise so our exit reflects how the child died (e.g. SIGINT) rather than a plain code.
+    process.kill(process.pid, result.signal);
+  }
   process.exit(result.status === null ? 1 : result.status);
 }
 
 const prebuilt = resolvePrebuiltBinary();
 if (prebuilt) {
-  exec(prebuilt, args);
+  const error = exec(prebuilt, args);
+  // exec only returns on a spawn failure (corrupt / non-executable / arch-mismatch binary) —
+  // warn and fall through to Bun rather than dying with an unhandled error.
+  process.stderr.write(
+    `agentlocks: prebuilt binary failed to start (${error.code ?? error.message}); trying Bun.\n`,
+  );
 }
 
 const sourceEntry = path.join(here, "agentlocks.ts");
-if (existsSync(sourceEntry)) {
+if (process.env.AGENTLOCKS_DISABLE_BUN_FALLBACK !== "1" && existsSync(sourceEntry)) {
   const bun = findBun();
   if (bun) exec(bun, [sourceEntry, ...args]);
 }

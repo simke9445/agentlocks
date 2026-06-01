@@ -133,11 +133,13 @@ function cliErrorSuggestion(
 function missingOptionSuggestion(message: string, argv: string[]): CliErrorSuggestion | null {
   const spec = extractQuotedValue(message, "required option");
   if (!spec) return null;
-  const flag = spec.split(/\s+/)[0];
+  // spec is an option declaration like "--reason <text>" or "-r, --reason <text>". Prefer the
+  // long flag and keep the value placeholder visible so the next: shows exactly where it goes.
+  const flag = spec.match(/--[\w-]+/)?.[0] ?? spec.split(/\s+/)[0];
   if (!flag) return null;
-  const placeholder = spec.slice(flag.length).trim() || "<value>";
+  const placeholder = spec.match(/<[^>]+>/)?.[0] ?? "<value>";
   const base = ["agentlocks", ...argv].map(shellQuote).join(" ");
-  return { with: flag, command: `${base} ${flag} ${placeholder}` };
+  return { command: `${base} ${flag} ${placeholder}` };
 }
 
 function flagSuggestion(message: string, argv: string[]): CliErrorSuggestion | null {

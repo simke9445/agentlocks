@@ -13,7 +13,7 @@ import {
   identifyLockOwner,
   lockOwnerAgentId,
 } from "../locks/session";
-import { REGISTRY_MUTEX_STALE_MS } from "../locks/types";
+import { REGISTRY_MUTEX_LIVE_CEILING_MS } from "../locks/types";
 
 export interface DoctorCommandOptions {
   json: boolean;
@@ -74,19 +74,33 @@ export async function runDoctor(options: DoctorCommandOptions): Promise<DoctorRe
   checks.push(...(await harnessChecks(config.root, config)));
 
   const initHarness = doctorInitHarness(process.env);
-  // Validate against the DEFAULT install: `init` installs the commit-hook backstop unless
-  // --no-commit-hook is passed, so doctor must check with commitHook:true. Otherwise it compares
-  // against the id-injection-only body and flags the installed hook as perpetual drift —
-  // reporting ok:false right after a normal `init`.
-  const init = await runInit({
+  const isInitDrift = (change: { action: string }) =>
+    ["would_create", "would_update", "reported"].includes(change.action);
+  // Validate against whichever install the user actually chose: `init` installs the commit-hook
+  // backstop by default, but `init --no-commit-hook` is equally valid (and the choice is not
+  // persisted). Check commitHook:true first; if it shows drift, also check commitHook:false and
+  // keep whichever has LESS drift — otherwise one of the two valid configurations always reports
+  // a perpetual false "init drift".
+  let init = await runInit({
     root: config.root,
     check: true,
     harness: initHarness,
     commitHook: true,
   });
-  const initDrift = init.changes.filter((change) =>
-    ["would_create", "would_update", "reported"].includes(change.action),
-  );
+  let initDrift = init.changes.filter(isInitDrift);
+  if (initDrift.length > 0) {
+    const alt = await runInit({
+      root: config.root,
+      check: true,
+      harness: initHarness,
+      commitHook: false,
+    });
+    const altDrift = alt.changes.filter(isInitDrift);
+    if (altDrift.length < initDrift.length) {
+      init = alt;
+      initDrift = altDrift;
+    }
+  }
   const initCheck: DoctorCheck = {
     id: "init",
     status: initDrift.length === 0 ? "ok" : "warn",
@@ -151,19 +165,20 @@ async function mutexCheck(mutexPath: string): Promise<DoctorCheck> {
   try {
     const stat = await fs.stat(mutexPath);
     const ageMs = Date.now() - stat.mtimeMs;
-    const stale = ageMs > REGISTRY_MUTEX_STALE_MS;
-    // A fresh mutex is normal: a lock operation is mid-flight and holding it. Only a mutex older
-    // than the stale threshold is a finding (a crashed holder, which Agentlocks reclaims on the
-    // next mutating command). Reporting a transient held mutex as a warning made doctor flap.
+    // The registry protects a live same-host holder up to REGISTRY_MUTEX_LIVE_CEILING_MS and only
+    // force-reclaims past it, so a mutex younger than the ceiling is either held by a live op or
+    // will be reclaimed automatically — not a finding. Only one older than the ceiling is
+    // genuinely stuck (a crashed/foreign holder the registry could not protect by liveness).
+    const stuck = ageMs > REGISTRY_MUTEX_LIVE_CEILING_MS;
     const check: DoctorCheck = {
       id: "registry_mutex",
-      status: stale ? "warn" : "ok",
-      message: stale
-        ? `registry mutex appears stale (${Math.round(ageMs / 1000)}s old)`
-        : "registry mutex currently held by an active operation",
+      status: stuck ? "warn" : "ok",
+      message: stuck
+        ? `registry mutex appears stuck (${Math.round(ageMs / 1000)}s old)`
+        : "registry mutex clear or held by an active operation",
     };
-    if (stale) {
-      check.next = "retry the lock command; Agentlocks reclaims stale mutexes automatically";
+    if (stuck) {
+      check.next = "retry the lock command; Agentlocks reclaims stuck mutexes automatically";
     }
     return check;
   } catch (error) {
@@ -239,8 +254,7 @@ async function harnessChecks(
     checks.push({
       id: "codex_thread_id",
       status: "warn",
-      message: `${CODEX_OWNER_ENV_KEY} is unavailable; Codex agent detection will fall back`,
-      next: renderAgentlocksCommand(config, ["identify", "--json"]),
+      message: `${CODEX_OWNER_ENV_KEY} is unavailable; Codex agent detection will fall back to a process-scoped id`,
     });
   }
 

@@ -71,5 +71,11 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "agentlocks-darwin-arm64": "0.6.0",
+    "agentlocks-darwin-x64": "0.6.0",
+    "agentlocks-linux-arm64": "0.6.0",
+    "agentlocks-linux-x64": "0.6.0"
   }
 }

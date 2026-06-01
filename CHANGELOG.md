@@ -3,6 +3,16 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## 0.5.1
+
+### Changed
+
+- **README rewrite and npm metadata refresh.** The README now leads with the agent-native value
+  proposition — a verifiable "Genuinely agent-native" surface table plus the typo-teaching and
+  zero-config-identity examples — instead of opening on reference tables. The npm `description` and
+  `keywords` are rewritten around the same positioning. No code or CLI-contract changes.
+- Added a GitHub social-preview card (`gh_og_share_image.png`).
+
 ## 0.5.0
 
 ### Changed

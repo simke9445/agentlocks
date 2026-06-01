@@ -1,84 +1,118 @@
 # Agentlocks
 
-Local advisory locks for multi-agent coding in one Git worktree.
+**Advisory file locks that let multiple AI coding agents share one Git worktree without clobbering each other.**
 
 <p align="center">
   <img src="./assets/agentlocks-heading.png" alt="Agentlocks" width="960">
 </p>
 
-![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)
-![Runtime Bun >= 1.2](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black)
-![Language TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6)
-![License MIT](https://img.shields.io/badge/license-MIT-blue)
-![Status pre-release](https://img.shields.io/badge/status-pre--release-orange)
+<p align="center">
+  <a href="https://www.npmjs.com/package/agentlocks"><img src="https://img.shields.io/npm/v/agentlocks?color=blue&label=npm" alt="npm version"></a>
+  <img src="https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.2-black" alt="Bun >= 1.2">
+  <img src="https://img.shields.io/badge/language-TypeScript-3178c6" alt="TypeScript">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+  <img src="https://img.shields.io/badge/status-pre--release-orange" alt="pre-release">
+</p>
 
-Agentlocks is an agent-native coordination tool for shared coding worktrees.
+Run two coding agents in the same repository (or one agent with subagents) and they start
+tripping over each other: two edit the same file and silently overwrite work, a "working on
+`auth.ts`" note goes stale and never clears, and two `git add` runs race for the same index.
+**Agentlocks turns those collision points into explicit, scriptable leases.**
 
-- Detects the active agent and records lock ownership under its agent id.
-- Reserves exact files, refreshes short leases, and recovers stale locks when safe.
-- Serializes `git add` and `git commit` with a synthetic `@git/index` lock.
-- Works with Codex and Claude Code, including subagents.
+It's **agent-native**: identity comes from the harness, so there are no ids to manage; every
+command speaks JSON; errors name the exact fix; and the contract tells the agent what to run
+next. No daemon, no database, no hosted service. Just files under `.agentlocks/locks/`.
 
-State is just files under `.agentlocks/locks`: no daemon, database, hosted service, or
-repository-specific prompt behavior.
-
-## Setup And Usage
-
-Agentlocks is meant to be installed once as a global CLI, then run as `agentlocks` inside the
-repositories you want to coordinate. Bun `>=1.2` must be available at runtime.
+## Install
 
 ```bash
-bun install -g agentlocks
+npm install -g agentlocks      # or: bun install -g agentlocks
 agentlocks --help
 ```
 
-If you prefer npm for global packages:
+Bun `>=1.2` must be on `PATH` at runtime; the executable runs through `#!/usr/bin/env bun`,
+even when installed through npm. Then run `agentlocks init` once inside each repo you want to
+coordinate.
+
+## See it in 20 seconds
 
 ```bash
-npm install -g agentlocks
-agentlocks --help
+# Inside Codex or Claude Code, the agent's identity is detected automatically.
+lock=$(agentlocks acquire src/auth.ts --reason "refactor login" --id-only)
+
+# ... the agent edits src/auth.ts, runs tests ...
+
+agentlocks release "$lock" --id-only
 ```
 
-If the command is not found, add your package manager's global binary directory to `PATH`.
+A second agent that tries to `acquire src/auth.ts` while that lease is held gets a clean
+conflict: the blocking owner, its reason, and the exact command to run next, instead of a
+silent overwrite.
 
-Inside Codex or Claude Code, use the global command from any host repository. The harness supplies
-the agent identity; do not set an agent id yourself for normal use.
+## Genuinely agent-native
 
-```bash
-cd ../your-repo
-agentlocks init --check --json || true
-agentlocks init
+Most CLIs are designed for humans and merely tolerated by agents. Agentlocks inverts that. Every
+surface is held to an agent-ergonomics bar, and you can verify each claim yourself:
 
-agentlocks identify --json
-file_lock="$(agentlocks acquire README.md --reason "edit README" --id-only)"
-agentlocks status --json
-agentlocks release "$file_lock" --id-only
-```
-
-`init` writes the host-repo support files. `acquire`, `status`, and `release` prove the core
-lock loop without depending on the Agentlocks checkout path.
-
-## TL;DR
-
-Concurrent repository work usually fails in three places: two workers edit the same file, a stale
-"I am working on this" note never expires, or someone stages a shared Git index while another
-worker is preparing a commit. Agentlocks makes those coordination points explicit and scriptable.
-
-| Need | Agentlocks behavior | Proof surface |
+| What an agent needs | What Agentlocks gives it | Try it |
 | --- | --- | --- |
-| Reserve files before editing | `acquire`, `expand`, `refresh`, `release` over repo-relative paths and globs | `agentlocks capabilities --json` |
-| Avoid shared Git-index races | `git begin` acquires `@git/index`; `git end` releases it and can release file locks | `src/locks/types.ts`, `tests/locks.test.ts` |
-| Recover stale local locks | TTLs, liveness classification, `prune --dry-run`, then `prune` | `agentlocks prune --dry-run --json` |
-| Keep automation parseable | `--json`, `--id-only`, compact error payloads, documented exit codes | `tests/cli.test.ts` |
-| Init repo guidance | Marked block in `AGENTS.md` (read by Codex and Claude Code) | `agentlocks init --check --json` |
-| Audit health | `doctor --json` checks config, lock dirs, mutex state, and init drift | `agentlocks doctor --json` |
+| **Zero-config identity** | The harness supplies the agent id; you never pass `--agent-id` | `agentlocks identify --json` |
+| **Machine-readable output** | `--json` / `--id-only` on every data surface; stdout is data, stderr is diagnostics | `agentlocks status --json` |
+| **A self-describing contract** | Every command, flag, exit code, and follow-up, in one payload | `agentlocks capabilities --json` |
+| **In-tool docs** | A paste-ready agent handbook, no external doc lookup needed | `agentlocks robot-docs guide` |
+| **Errors that teach** | A wrong flag gets a "did you mean" plus the exact corrected command | `agentlocks status --jason` |
+| **Next-step breadcrumbs** | The contract names the next command for every verb; conflicts and errors print a `next:` line | `agentlocks capabilities --json` |
 
-Agentlocks is advisory. It coordinates agents that agree to use it; it does not stop an editor, shell
-command, or Git operation that ignores the protocol.
+A typo doesn't dead-end the agent. It teaches:
+
+```text
+$ agentlocks status --jason
+agentlocks error: error: unknown option '--jason'
+(Did you mean --json?)
+next: agentlocks status --json
+```
+
+Identity just works, with no setup and no flags:
+
+```text
+$ agentlocks identify --json
+{"kind":"identified","agent_id":"claude-code:0fd188d5-…","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code"}
+```
+
+Agentlocks even brings its own harness integration: `agentlocks init --harness claude-code`
+installs a Claude Code `PreToolUse` hook (and `--harness codex` the Codex equivalent) that runs
+an advisory `git verify` before a `git commit` tool-call, surfacing staged-but-unlocked paths
+without ever blocking the commit or touching your git config.
+
+## What it coordinates
+
+Concurrent repository work fails in three predictable places. Agentlocks makes each one explicit,
+owned, and parseable:
+
+| Collision point | Agentlocks behavior | Proof surface |
+| --- | --- | --- |
+| Two workers edit the same file | `acquire`, `expand`, `refresh`, `release` over repo-relative paths and globs | `agentlocks capabilities --json` |
+| A stale "I'm on this" note never clears | TTL leases, liveness classification, `prune --dry-run` then `prune` | `agentlocks prune --dry-run --json` |
+| Two workers race the shared Git index | `git begin` takes the synthetic `@git/index` lock; `git end` releases it | `src/locks/types.ts`, `tests/locks.test.ts` |
+
+Agentlocks is **advisory**: it coordinates agents that agree to use it. It does not stop an
+editor, shell command, or Git operation that ignores the protocol, which is also why it needs
+no daemon, no privileges, and no lock-holding background process.
+
+## Why Agentlocks
+
+| Approach | Works well for | Where it falls short for shared worktrees |
+| --- | --- | --- |
+| Manual notes in chat or issues | Informal coordination and intent | No lease, no owner check, no parseable status, easy to forget before staging |
+| Shell scripts | Local conventions around one repo | Usually miss conflict semantics, stale sessions, JSON contracts, and Git-index locking |
+| `flock` | Process-level critical sections on one machine | Not a repo resource registry; no path/glob inventory, owner metadata, install guidance, or agent docs |
+| Git-native hooks (`pre-commit`) | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers, and a single `core.hooksPath` collides with husky/lefthook |
+| Hosted lock service | Cross-machine coordination | Requires a service, credentials, network access, and operational ownership |
+| Agentlocks | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call; installs no git hook and never reconfigures your git |
 
 ## Quick Demo
 
-This demo is meant to run inside Codex or Claude Code. The active harness identity is detected
+This demo runs inside Codex or Claude Code. The active harness identity is detected
 automatically, including Claude Code subagents when `agentlocks init --harness claude-code` has
 installed the project hook.
 
@@ -118,40 +152,21 @@ prune --dry-run reports pruned_count 0 in a fresh repo.
 doctor reports ok true after init completes.
 ```
 
-## Why Agentlocks
+## Host Setup
 
-| Approach | Works well for | Where it falls short for shared worktrees |
-| --- | --- | --- |
-| Manual notes in chat or issues | Informal coordination and intent | No lease, no owner check, no parseable status, easy to forget before staging |
-| Shell scripts | Local conventions around one repo | Usually miss conflict semantics, stale sessions, JSON contracts, and Git-index locking |
-| `flock` | Process-level critical sections on one machine | Not a repo resource registry; no path/glob inventory, owner metadata, install guidance, or agent docs |
-| Git-native hooks (`pre-commit`) | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers, and a single `core.hooksPath` collides with husky/lefthook |
-| Hosted lock service | Cross-machine coordination | Requires a service, credentials, network access, and operational ownership |
-| Agentlocks | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call — installs no git hook and never reconfigures your git |
-
-## Install Details
-
-Agentlocks is a Bun/TypeScript CLI. Bun `>=1.2` is required even when the package is installed through
-npm, because the executable uses `#!/usr/bin/env bun`.
-
-### Global Install
+`agentlocks init` is idempotent and writes the host-repo support files. Run it once per repo;
+add `--harness claude-code` (or `--harness codex`) to also install the PreToolUse hooks.
 
 ```bash
-bun install -g agentlocks
-agentlocks --help
+agentlocks init --check --json || true     # preview changes; exits 1 on drift, writes nothing
+agentlocks init
+
+# Claude Code: also install the .claude PreToolUse hooks.
+agentlocks init --check --harness claude-code --json || true
+agentlocks init --harness claude-code
 ```
 
-```bash
-npm install -g agentlocks
-agentlocks --help
-```
-
-Use one global install method, not both. After installation, run `agentlocks init` from each host
-repository that should use advisory locking.
-
-### Host Init Behavior
-
-`agentlocks init` is idempotent. It can create or update:
+`init` can create or update:
 
 | Path | Behavior |
 | --- | --- |
@@ -164,11 +179,11 @@ repository that should use advisory locking.
 | `.gitignore` | Adds `.agentlocks/` |
 | `package.json` | Adds missing recommended scripts when a package file exists |
 
-The commit-hook backstop is advisory: it surfaces staged-but-unlocked paths before a `git commit` tool-call and
-**never blocks the commit**. It is installed by default; `agentlocks init --no-commit-hook` keeps the original
-id-injection-only Claude hook and skips the Codex hook.
+The commit-hook backstop is advisory: it surfaces staged-but-unlocked paths before a `git commit`
+tool-call and **never blocks the commit**. It is installed by default; `agentlocks init
+--no-commit-hook` keeps the original id-injection-only Claude hook and skips the Codex hook.
 
-Recommended host scripts inserted when absent:
+Recommended host scripts, inserted when absent:
 
 ```json
 {
@@ -182,8 +197,8 @@ Recommended host scripts inserted when absent:
 
 ## Quick Start
 
-The examples in this section assume the global install from [Setup And Usage](#setup-and-usage)
-and a supported agent harness. Codex and Claude Code identity is automatic.
+The steps below assume the global install above and a supported agent harness. Codex and Claude
+Code identity is automatic.
 
 1. Initialize the host repo (writes the `AGENTS.md` instructions block).
 
@@ -238,8 +253,8 @@ and a supported agent harness. Codex and Claude Code identity is automatic.
    agentlocks git verify --json     # lists any staged-but-unlocked paths
    ```
 
-   This is what the opt-out PreToolUse commit-hook backstop runs automatically. If you ever lose your
-   lock ids (e.g. after context compaction), recover with `agentlocks status --mine` and
+   This is what the opt-out PreToolUse commit-hook backstop runs automatically. If you ever lose
+   your lock ids (e.g. after context compaction), recover with `agentlocks status --mine` and
    `agentlocks release --mine` / `agentlocks refresh --mine`.
 
 ## Command Reference
@@ -559,7 +574,10 @@ The current tests cover CLI parsing and rendering, file-backed lock semantics, c
 init idempotency, doctor output, capabilities JSON, generated instruction text, and the
 golden-tested robot guide.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines. Bug reports and issues are
+welcome.
 
 ## License
 

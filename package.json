@@ -1,7 +1,7 @@
 {
   "name": "agentlocks",
-  "version": "0.5.0",
-  "description": "Standalone local advisory locking CLI and reusable TypeScript library.",
+  "version": "0.5.1",
+  "description": "Agent-native advisory file locks that let multiple AI coding agents share one Git worktree without clobbering each other.",
   "license": "MIT",
   "author": "Djordje Simovic",
   "type": "module",
@@ -16,11 +16,19 @@
   },
   "keywords": [
     "advisory-lock",
+    "file-lock",
     "multi-agent",
+    "ai-agents",
+    "coding-agent",
+    "claude-code",
+    "codex",
+    "agent-native",
     "git",
+    "worktree",
+    "concurrency",
     "cli",
-    "bun",
-    "typescript"
+    "typescript",
+    "bun"
   ],
   "publishConfig": {
     "access": "public"

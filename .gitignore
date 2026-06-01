@@ -9,3 +9,4 @@ logs/
 tmp/
 scratch/
 notes/
+.playwright-mcp/

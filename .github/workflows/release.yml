@@ -40,24 +40,9 @@ env:
 jobs:
   # White-box Windows gate: the lock test suite must pass on Windows before anything publishes, and
   # a freshly built win32 binary must pass the extended black-box scenario. Gates publish-stage.
+  # Shared with ci.yml via the reusable workflow (the steps live there).
   windows-unit:
-    runs-on: windows-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.13
-      - run: bun install --frozen-lockfile
-      - name: bun test (full lock suite on Windows)
-        run: bun test
-      - name: Build the win32 binary and run the extended conformance scenario against it
-        shell: bash
-        run: |
-          bun scripts/build-binaries.mjs win32-x64
-          node scripts/conformance-scenario.mjs "$(pwd)/npm/win32-x64/bin/agentlocks.exe" extended
+    uses: ./.github/workflows/windows-unit.yml
 
   # Cross-compile every target binary into npm/<dir>/bin and hand them on as artifacts, plus the
   # conformance script the verify matrix runs (so verify needs no checkout / repo token). No secrets.
@@ -88,6 +73,18 @@ jobs:
         with:
           name: conformance-script
           path: scripts/conformance-scenario.mjs
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the CI scripts the checkout-less jobs run (verify identity; flip integrity)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-scripts
+          # verify (no checkout) runs assert-target-identity.mjs, which imports ./platform-target.mjs;
+          # flip (no checkout) runs dist-integrity.sh. Ship all three so they resolve on those runners.
+          path: |
+            scripts/ci/assert-target-identity.mjs
+            scripts/ci/platform-target.mjs
+            scripts/ci/dist-integrity.sh
           if-no-files-found: error
           retention-days: 7
 
@@ -143,14 +140,9 @@ jobs:
         run: |
           set -eu
           for d in $TARGETS; do npm pkg set "optionalDependencies.agentlocks-$d=$VERSION"; done
-          node -e '
-            const want = process.env.TARGETS.trim().split(/\s+/).map((s) => "agentlocks-" + s);
-            const od = require("./package.json").optionalDependencies || {};
-            const got = Object.keys(od).sort();
-            const exp = [...want].sort();
-            if (got.length !== exp.length || got.some((k, i) => k !== exp[i])) { console.error("::error::optionalDependencies set mismatch: " + got.join(",")); process.exit(1); }
-            for (const k of want) if (od[k] !== process.env.VERSION) { console.error("::error::" + k + " pinned at " + od[k] + " not " + process.env.VERSION); process.exit(1); }
-          '
+          # Assert the exact set { agentlocks-<target>: VERSION } (no more, no fewer). Reads
+          # ./package.json + env TARGETS/VERSION.
+          node scripts/ci/assert-optional-deps.mjs
 
       - name: Pack main into a tarball (NOT published here); record its integrity
         id: pack
@@ -166,15 +158,6 @@ jobs:
           OUR: ${{ steps.pack.outputs.integrity }}
         run: |
           set -eu
-          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
-            vi_out=""; vi_k=1
-            while [ "$vi_k" -le 4 ]; do
-              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
-              grep -q "E404" /tmp/vierr && return 0
-              vi_k=$((vi_k + 1)); sleep 5
-            done
-            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
-          }
           # Fetch published versions with a retry (network); a brand-new package (E404) is the first
           # release. A genuine network failure FAILS the guard (it never passes vacuously).
           VERSIONS_JSON=""
@@ -185,25 +168,14 @@ jobs:
             if [ "$i" -eq 4 ]; then echo "::error::npm view agentlocks failed (network?)"; cat /tmp/npmerr; exit 1; fi
             i=$((i + 1)); sleep 5
           done
-          PUB_MAIN="$(view_integrity "agentlocks@$VERSION")"
+          # dist-integrity.sh: published main bytes (empty when absent via E404; fails on a persistent
+          # network/registry error). Same 4-try/5s loop as the other view_integrity call sites.
+          PUB_MAIN="$(sh scripts/ci/dist-integrity.sh "agentlocks@$VERSION")"
           # Below max: fail. Equal max: pass ONLY when the published main bytes match this run (an
           # idempotent recovery, which the flip then no-ops); otherwise foreign/stale -> fail.
           # Strictly greater / first release: pass. Compared as numeric tuples (not string/semver).
-          VERSIONS_JSON="$VERSIONS_JSON" PUB_MAIN="$PUB_MAIN" node -e '
-            const v = process.env.VERSION.split(".").map(Number);
-            let versions = JSON.parse(process.env.VERSIONS_JSON || "[]");
-            if (!Array.isArray(versions)) versions = [versions].filter(Boolean);
-            const t = versions.map((s) => String(s).split(".").map(Number)).filter((x) => x.length === 3 && x.every(Number.isFinite));
-            const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-            const max = t.sort(cmp).pop();
-            if (!max) process.exit(0);
-            const c = cmp(v, max);
-            if (c < 0) { console.error("::error::version " + process.env.VERSION + " is below the published max " + max.join(".")); process.exit(1); }
-            if (c === 0) {
-              if (process.env.PUB_MAIN && process.env.PUB_MAIN === process.env.OUR) { console.log("equal-max recovery re-run (main integrity matches)"); process.exit(0); }
-              console.error("::error::version " + process.env.VERSION + " already the published max with different bytes (not a recovery)"); process.exit(1);
-            }
-          '
+          # check-monotonic.mjs reads env VERSION/OUR (step env) + VERSIONS_JSON/PUB_MAIN (set here).
+          VERSIONS_JSON="$VERSIONS_JSON" PUB_MAIN="$PUB_MAIN" node scripts/ci/check-monotonic.mjs
 
       - name: Download platform binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -218,52 +190,20 @@ jobs:
           VERSION: ${{ steps.guards.outputs.version }}
         run: |
           set -eu
-          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
-            vi_out=""; vi_k=1
-            while [ "$vi_k" -le 4 ]; do
-              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
-              grep -q "E404" /tmp/vierr && return 0
-              vi_k=$((vi_k + 1)); sleep 5
-            done
-            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
-          }
           for d in $TARGETS; do
             pkg="agentlocks-$d"
             ( cd "npm/$d" && npm pkg set "version=$VERSION" >/dev/null )
             # Pre-publish local guard: validate the manifest WE will publish (name/os/cpu/libc) and
             # that the binary is present, so a bad target fails BEFORE burning the immutable version.
             # (The post-publish npm-view check below then confirms the registry copy.)
-            D="$d" node -e '
-              const fs = require("fs"), path = require("path");
-              const d = process.env.D;
-              const m = require(path.resolve("npm", d, "package.json"));
-              let dir = d, libc = null;
-              if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
-              const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
-              if (os === "linux" && !libc) libc = "glibc";
-              const eq = (a, b) => Array.isArray(a) && a.length === 1 && a[0] === b;
-              const fail = (x) => { console.error("::error::pre-publish " + d + ": " + x); process.exit(1); };
-              if (m.name !== "agentlocks-" + d) fail("name " + m.name);
-              if (!eq(m.os, os)) fail("os " + JSON.stringify(m.os));
-              if (!eq(m.cpu, cpu)) fail("cpu " + JSON.stringify(m.cpu));
-              if (libc ? !eq(m.libc, libc) : m.libc) fail("libc " + JSON.stringify(m.libc));
-              const exe = os === "win32" ? "agentlocks.exe" : "agentlocks";
-              if (!fs.existsSync(path.resolve("npm", d, "bin", exe))) fail("missing bin/" + exe);
-            '
+            node scripts/ci/check-manifest.mjs local "$d"
             # Pack once: our exact publishable bytes (deterministic integrity) AND the tarball file
             # list, so a `files` glob that drops or misnames the binary fails BEFORE publishing rather
             # than only at the verify matrix.
             PACKJSON="$(cd "npm/$d" && npm pack --json --ignore-scripts 2>/dev/null)"
-            echo "$PACKJSON" | D="$d" node -e '
-              let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{
-                const j = JSON.parse(s), d = process.env.D;
-                const exe = d.indexOf("win32") === 0 ? "agentlocks.exe" : "agentlocks";
-                const files = (j[0].files || []).map((f) => f.path);
-                if (!files.includes("bin/" + exe)) { console.error("::error::" + d + " tarball is missing bin/" + exe + " (files: " + files.join(",") + ")"); process.exit(1); }
-              });
-            '
+            echo "$PACKJSON" | node scripts/ci/check-manifest.mjs tarball "$d"
             OUR="$(echo "$PACKJSON" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
-            PUB="$(view_integrity "$pkg@$VERSION")"
+            PUB="$(sh scripts/ci/dist-integrity.sh "$pkg@$VERSION")"
             if [ -n "$PUB" ]; then
               # Already on npm: accept ONLY if the bytes are ours (idempotent re-run); a mismatch is
               # foreign or stale and must hard-fail (skip-if-exists must never accept foreign bytes).
@@ -284,22 +224,7 @@ jobs:
             [ "$GOT" = "$OUR" ] || { echo "::error::$pkg@$VERSION published bytes != ours (got=$GOT ours=$OUR)"; exit 1; }
             # Manifest guard: name/version/os/cpu/libc must match what the dir declares, so a target
             # cannot ship under the wrong platform filter. (os/cpu/libc derived from the dir name.)
-            npm view "$pkg@$VERSION" --json | D="$d" VERSION="$VERSION" node -e '
-              let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{
-                const m = JSON.parse(s);
-                let dir = process.env.D, libc = null;
-                if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
-                const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
-                if (os === "linux" && !libc) libc = "glibc"; // glibc packages declare libc:["glibc"]
-                const eq = (a, b) => Array.isArray(a) && a.length === 1 && a[0] === b;
-                const fail = (msg) => { console.error("::error::" + msg); process.exit(1); };
-                if (m.name !== "agentlocks-" + process.env.D) fail("name " + m.name);
-                if (m.version !== process.env.VERSION) fail("version " + m.version);
-                if (!eq(m.os, os)) fail("os " + JSON.stringify(m.os));
-                if (!eq(m.cpu, cpu)) fail("cpu " + JSON.stringify(m.cpu));
-                if (libc ? !eq(m.libc, libc) : m.libc) fail("libc " + JSON.stringify(m.libc));
-              });
-            '
+            npm view "$pkg@$VERSION" --json | VERSION="$VERSION" node scripts/ci/check-manifest.mjs published "$d"
           done
           # The enforced foreign-byte gate is the integrity match above (in-workflow, tokenless): a
           # pre-existing package is accepted only when its published bytes equal ours, else hard-fail.
@@ -373,6 +298,10 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: conformance-script
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts/ci # assert-target-identity.mjs + its ./platform-target.mjs import land here
       - name: Install from the packed tarball and prove the real binary on this OS
         shell: ${{ matrix.shell }}
         env:
@@ -408,27 +337,9 @@ jobs:
           # matching platform package is installed at exactly $VERSION with its binary resolvable. A
           # mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. (The
           # conformance run below then proves the installed launcher actually resolves and runs it;
-          # globals are not on Node's default path, so resolve via the global root.)
-          NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node -e '
-            const t = process.env.TARGET, v = process.env.VERSION;
-            let dir = t, libc = null;
-            if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
-            const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
-            if (os === "linux" && !libc) libc = "glibc";
-            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
-            if (process.platform !== os) fail("runner platform " + process.platform + " != " + os);
-            if (process.arch !== cpu) fail("runner arch " + process.arch + " != " + cpu);
-            if (os === "linux") {
-              let isMusl = false;
-              try { isMusl = !process.report.getReport().header.glibcVersionRuntime; } catch {}
-              if ((libc === "musl") !== isMusl) fail("runner libc != " + libc);
-            }
-            const ver = require("agentlocks-" + t + "/package.json").version;
-            if (ver !== v) fail("installed agentlocks-" + t + "@" + ver + " != " + v);
-            const exe = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
-            const resolved = require.resolve("agentlocks-" + t + "/bin/" + exe);
-            console.log("identity OK: agentlocks-" + t + "@" + ver + " (" + process.platform + "/" + process.arch + (libc ? "/" + libc : "") + ") -> " + resolved);
-          '
+          # globals are not on Node's default path, so resolve via the global root.) The script is the
+          # ci-scripts artifact (no checkout here); it reads env TARGET/VERSION and resolves via NODE_PATH.
+          NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs
 
           # Invoke the npm-installed launcher shim by absolute path (never the platform binary
           # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the
@@ -456,22 +367,19 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: main-tarball
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts/ci # dist-integrity.sh (invoked via `sh`, since artifacts strip the +x bit)
       - name: Flip latest (publish main.tgz), idempotent on a pre-existing main@X via integrity
         env:
           VERSION: ${{ needs.publish-stage.outputs.version }}
           OUR_INTEGRITY: ${{ needs.publish-stage.outputs.main_integrity }}
         run: |
           set -eu
-          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
-            vi_out=""; vi_k=1
-            while [ "$vi_k" -le 4 ]; do
-              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
-              grep -q "E404" /tmp/vierr && return 0
-              vi_k=$((vi_k + 1)); sleep 5
-            done
-            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
-          }
-          PUB="$(view_integrity "agentlocks@$VERSION")"
+          # dist-integrity.sh: published main bytes (empty when absent via E404; fails on a persistent
+          # network/registry error). Same 4-try/5s loop as the other view_integrity call sites.
+          PUB="$(sh scripts/ci/dist-integrity.sh "agentlocks@$VERSION")"
           if [ -n "$PUB" ]; then
             # main@X already exists. If its bytes are the ones this run packed, the run already
             # flipped (recovery re-run) -> no-op. Otherwise foreign/stale bytes are live -> hard fail.

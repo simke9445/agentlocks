@@ -120,7 +120,7 @@ jobs:
       # No `bun install` here: this OIDC (id-token) job runs only npm/node/git inline scripts, so
       # project dependency lifecycle scripts never execute in the publish-credential context.
       - name: Pin npm
-        run: npm install -g "npm@${NPM_PIN}"
+        run: npm install -g "npm@${NPM_PIN}" --ignore-scripts
 
       - name: Early guards (tag shape, tag == package.json, ancestry)
         id: guards
@@ -166,6 +166,15 @@ jobs:
           OUR: ${{ steps.pack.outputs.integrity }}
         run: |
           set -eu
+          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
+            vi_out=""; vi_k=1
+            while [ "$vi_k" -le 4 ]; do
+              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
+              grep -q "E404" /tmp/vierr && return 0
+              vi_k=$((vi_k + 1)); sleep 5
+            done
+            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
+          }
           # Fetch published versions with a retry (network); a brand-new package (E404) is the first
           # release. A genuine network failure FAILS the guard (it never passes vacuously).
           VERSIONS_JSON=""
@@ -176,7 +185,7 @@ jobs:
             if [ "$i" -eq 4 ]; then echo "::error::npm view agentlocks failed (network?)"; cat /tmp/npmerr; exit 1; fi
             i=$((i + 1)); sleep 5
           done
-          PUB_MAIN="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+          PUB_MAIN="$(view_integrity "agentlocks@$VERSION")"
           # Below max: fail. Equal max: pass ONLY when the published main bytes match this run (an
           # idempotent recovery, which the flip then no-ops); otherwise foreign/stale -> fail.
           # Strictly greater / first release: pass. Compared as numeric tuples (not string/semver).
@@ -209,6 +218,15 @@ jobs:
           VERSION: ${{ steps.guards.outputs.version }}
         run: |
           set -eu
+          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
+            vi_out=""; vi_k=1
+            while [ "$vi_k" -le 4 ]; do
+              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
+              grep -q "E404" /tmp/vierr && return 0
+              vi_k=$((vi_k + 1)); sleep 5
+            done
+            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
+          }
           for d in $TARGETS; do
             pkg="agentlocks-$d"
             ( cd "npm/$d" && npm pkg set "version=$VERSION" >/dev/null )
@@ -232,9 +250,20 @@ jobs:
               const exe = os === "win32" ? "agentlocks.exe" : "agentlocks";
               if (!fs.existsSync(path.resolve("npm", d, "bin", exe))) fail("missing bin/" + exe);
             '
-            # Our exact publishable bytes for this package (deterministic integrity).
-            OUR="$(cd "npm/$d" && npm pack --json --ignore-scripts 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
-            PUB="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
+            # Pack once: our exact publishable bytes (deterministic integrity) AND the tarball file
+            # list, so a `files` glob that drops or misnames the binary fails BEFORE publishing rather
+            # than only at the verify matrix.
+            PACKJSON="$(cd "npm/$d" && npm pack --json --ignore-scripts 2>/dev/null)"
+            echo "$PACKJSON" | D="$d" node -e '
+              let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{
+                const j = JSON.parse(s), d = process.env.D;
+                const exe = d.indexOf("win32") === 0 ? "agentlocks.exe" : "agentlocks";
+                const files = (j[0].files || []).map((f) => f.path);
+                if (!files.includes("bin/" + exe)) { console.error("::error::" + d + " tarball is missing bin/" + exe + " (files: " + files.join(",") + ")"); process.exit(1); }
+              });
+            '
+            OUR="$(echo "$PACKJSON" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
+            PUB="$(view_integrity "$pkg@$VERSION")"
             if [ -n "$PUB" ]; then
               # Already on npm: accept ONLY if the bytes are ours (idempotent re-run); a mismatch is
               # foreign or stale and must hard-fail (skip-if-exists must never accept foreign bytes).
@@ -423,7 +452,7 @@ jobs:
           node-version: ${{ env.NODE_PIN }}
           registry-url: https://registry.npmjs.org
       - name: Pin npm
-        run: npm install -g "npm@${NPM_PIN}"
+        run: npm install -g "npm@${NPM_PIN}" --ignore-scripts
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: main-tarball
@@ -433,7 +462,16 @@ jobs:
           OUR_INTEGRITY: ${{ needs.publish-stage.outputs.main_integrity }}
         run: |
           set -eu
-          PUB="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+          view_integrity() { # $1=pkg@version -> integrity, or empty when absent (E404); fail-closed on a persistent network/registry error
+            vi_out=""; vi_k=1
+            while [ "$vi_k" -le 4 ]; do
+              if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; return 0; fi
+              grep -q "E404" /tmp/vierr && return 0
+              vi_k=$((vi_k + 1)); sleep 5
+            done
+            echo "::error::npm view $1 dist.integrity failed (network/registry)" >&2; cat /tmp/vierr >&2; exit 1
+          }
+          PUB="$(view_integrity "agentlocks@$VERSION")"
           if [ -n "$PUB" ]; then
             # main@X already exists. If its bytes are the ones this run packed, the run already
             # flipped (recovery re-run) -> no-op. Otherwise foreign/stale bytes are live -> hard fail.

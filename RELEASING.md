@@ -240,7 +240,9 @@ your machine, including the OTP prompts that automation avoids.
    ```
 This path bypasses the automated pre-flip matrix, so it mirrors the V2 ordering by hand: publish
 the platform packages under the `preflight` tag, verify every target you can reach, and only then
-publish main. Use it only when the workflow is unavailable.
+publish main. Use it only when the workflow is unavailable. It is **reduced assurance**: it does not
+run the workflow's automated local-pack-vs-registry `dist.integrity` equality checks, so the manual
+per-target verification in step 3 is what stands in for the gate. Do not skip it.
 
 2. Publish the seven platform packages **first, under the `preflight` tag** so an unverified `@X`
    is never what `npm i agentlocks-<plat>` resolves (main pins them by exact version, so the fanout

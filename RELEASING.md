@@ -74,17 +74,23 @@ tokenless): no dist-tag manipulation, no standing secrets.
 
 ```yaml
 concurrency:
-  group: release          # constant: latest is a global resource, not per-ref
-  queue: max              # FIFO queue; do not silently drop a queued tag
-  cancel-in-progress: false   # a cancelled mid-flip leaves latest half-updated
+  group: release              # constant: latest is a global resource, not per-ref
+  cancel-in-progress: false   # never cancel an in-flight release; a cancelled mid-flip leaves latest half-updated
 ```
+
+> Actions concurrency has only `group` and `cancel-in-progress`; there is no `queue:` mode (an
+> earlier draft used `queue: max`, but the workflow loader rejects that key with a startup_failure,
+> and `actionlint` flags it). `cancel-in-progress: false` keeps the in-flight run plus only the most
+> recent pending one, so the FIFO-of-one below is a manual invariant, not a platform guarantee.
 
 **Serialization rule (maintained by the maintainer, simke9445):** do not manually run
 `npm dist-tag` or `npm publish` against agentlocks packages, and do not push a new release tag,
 while a release run is queued or running. The concurrency group is `release` (constant, not
-per-ref), so any two release runs are serialized globally. A monotonic-version guard inside
-`publish-stage` also rejects a tag whose version is below the already-published maximum, so a
-stale queued tag cannot overwrite a newer release.
+per-ref), so any two release runs are serialized globally. GitHub keeps the in-flight run plus only
+the most recent pending one (there is no keep-every-queued-run mode), so pushing several tags in
+quick succession can drop an intermediate one; that is why the one-tag-at-a-time rule matters. A
+monotonic-version guard inside `publish-stage` also rejects a tag whose version is below the
+already-published maximum, so a stale queued tag cannot overwrite a newer release.
 
 ### The human approval gate
 

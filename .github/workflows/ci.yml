@@ -69,3 +69,32 @@ jobs:
       # with no Bun on the machine.
       - name: Install smoke test
         run: bun run smoke
+
+  # Windows port gate (PRODUCTION_CI_DESIGN_V2.md section 4.7 / step 9). White-box: the full lock
+  # suite must pass on Windows. Black-box: a freshly built win32 binary must pass the extended
+  # conformance scenario (rename-replace, conflict, reclaim, git-index cycle, backslash path). Make
+  # this a required check on PRs so the Windows port cannot regress between releases.
+  windows-unit:
+    name: windows-unit (bun test + conformance)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test (full lock suite on Windows)
+        run: bun test
+
+      - name: Build the win32 binary and run the extended conformance scenario
+        shell: bash
+        run: |
+          bun scripts/build-binaries.mjs win32-x64
+          node scripts/conformance-scenario.mjs "$(pwd)/npm/win32-x64/bin/agentlocks.exe" extended

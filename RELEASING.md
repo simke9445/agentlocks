@@ -1,6 +1,6 @@
 # Releasing agentlocks
 
-`agentlocks` ships as a thin main package plus seven per-platform binary packages. Releases are
+`agentlocks` ships as a thin main package plus six per-platform binary packages. Releases are
 **automated**: pushing a `vX.Y.Z` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which builds all binaries, proves every target on its native OS before touching `latest`, and
 publishes via OIDC trusted publishing. No tokens, no OTP, one human click.
@@ -15,11 +15,11 @@ the package ships compiled, Bun-embedded binaries the Biome way:
   platform (`agentlocks-<platform>-<arch>`) and execs it (`.exe` on win32). With no prebuilt
   binary (an unsupported platform, or a `npm link` dev checkout) it falls back to running the
   TypeScript entry under Bun.
-- The seven `agentlocks-<platform>` packages each carry one compiled binary and an
+- The six `agentlocks-<platform>` packages each carry one compiled binary and an
   `os`/`cpu`/`libc` gate, so npm installs only the one matching the user's machine. The `libc`
   field makes glibc and musl mutually exclusive on Linux: the right one installs on Alpine vs
   Debian automatically.
-- The main package lists all seven as `optionalDependencies`, so a platform with no published
+- The main package lists all six as `optionalDependencies`, so a platform with no published
   binary still installs (and uses the Bun fallback) instead of failing the whole install.
 
 Supported binary targets:
@@ -32,10 +32,13 @@ Supported binary targets:
 | agentlocks-linux-arm64 | linux | arm64 | glibc |
 | agentlocks-linux-x64-musl | linux | x64 | musl |
 | agentlocks-linux-arm64-musl | linux | arm64 | musl |
-| agentlocks-win32-x64 | win32 | x64 | |
 
-`win32-arm64` is out of scope until a Bun cross-compile target and a GitHub `windows-11-arm`
-runner both exist; until then the launcher falls back to Bun or errors actionably.
+`win32-x64` is temporarily not shipped: its npm package awaits a one-time publish (the launcher and
+the `bun-windows-x64` build target both exist, and the lock core is proven on Windows by the
+`windows-unit` CI job), so Windows uses the Bun fallback for now. Re-add it to `$TARGETS` and the
+verify matrix in `release.yml` once the package is published. `win32-arm64` is out of scope until a
+Bun cross-compile target and a GitHub `windows-11-arm` runner both exist; until then the launcher
+falls back to Bun or errors actionably.
 
 ## The pipeline: five jobs, every target proven before `latest`
 
@@ -250,7 +253,7 @@ publish main. Use it only when the workflow is unavailable. It is **reduced assu
 run the workflow's automated local-pack-vs-registry `dist.integrity` equality checks, so the manual
 per-target verification in step 3 is what stands in for the gate. Do not skip it.
 
-2. Publish the seven platform packages **first, under the `preflight` tag** so an unverified `@X`
+2. Publish the six platform packages **first, under the `preflight` tag** so an unverified `@X`
    is never what `npm i agentlocks-<plat>` resolves (main pins them by exact version, so the fanout
    still resolves):
    ```bash

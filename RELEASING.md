@@ -238,16 +238,26 @@ your machine, including the OTP prompts that automation avoids.
    bun run check         # do not release on red
    bun run build:binaries
    ```
-2. Publish the seven platform packages **first**, stamping the version:
+This path bypasses the automated pre-flip matrix, so it mirrors the V2 ordering by hand: publish
+the platform packages under the `preflight` tag, verify every target you can reach, and only then
+publish main. Use it only when the workflow is unavailable.
+
+2. Publish the seven platform packages **first, under the `preflight` tag** so an unverified `@X`
+   is never what `npm i agentlocks-<plat>` resolves (main pins them by exact version, so the fanout
+   still resolves):
    ```bash
    for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64 \
              linux-x64-musl linux-arm64-musl win32-x64; do
-     ( cd "npm/$d" && npm pkg set "version=X.Y.Z" && npm publish --access public )
+     ( cd "npm/$d" && npm pkg set "version=X.Y.Z" \
+       && npm publish --access public --tag preflight --ignore-scripts )
    done
    ```
    With 2FA-on-publish, one fresh OTP usually covers the burst (npm caches the session); add
-   `--otp=<code>` to the first, and to any that still report `EOTP`.
-3. Inject `optionalDependencies`, publish main, then discard the local edit:
+   `--otp=<code>` to the first, and to any that still report `EOTP`. This is also the one-time
+   bootstrap path for a brand-new platform package (which cannot use trusted publishing for its
+   first publish).
+3. Inject `optionalDependencies`, pack main, and **verify every target you can reach before
+   publishing main** (the manual stand-in for the pre-flip matrix; do not skip it):
    ```bash
    npm pkg set \
      optionalDependencies.agentlocks-darwin-arm64=X.Y.Z \
@@ -257,15 +267,21 @@ your machine, including the OTP prompts that automation avoids.
      optionalDependencies.agentlocks-linux-x64-musl=X.Y.Z \
      optionalDependencies.agentlocks-linux-arm64-musl=X.Y.Z \
      optionalDependencies.agentlocks-win32-x64=X.Y.Z
-   npm publish --access public
+   npm pack --ignore-scripts                       # -> agentlocks-X.Y.Z.tgz
+   # On each OS you can reach (your machine; Alpine via Docker; Windows if possible), Bun off:
+   AGENTLOCKS_DISABLE_BUN_FALLBACK=1 npm i -g ./agentlocks-X.Y.Z.tgz && agentlocks --version
+   ```
+4. Only once those install and run, publish main and discard the local edit:
+   ```bash
+   npm publish ./agentlocks-X.Y.Z.tgz --access public --ignore-scripts
    git checkout -- package.json   # optionalDependencies are never committed
    ```
-4. Verify on a clean machine with no Bun:
+5. Confirm the live release resolves through `latest` on a clean machine with no Bun:
    ```bash
    docker run --rm node:22-slim bash -lc \
      'npm i -g agentlocks@X.Y.Z && agentlocks --version'
    ```
-   Also verify on Alpine (musl) and Windows if possible.
+   Also confirm on Alpine (musl) and Windows if possible.
 
 Published versions are immutable: if a publish fails midway, you cannot re-publish the same
 version. Bump to the next patch and re-cut.

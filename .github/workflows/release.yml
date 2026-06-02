@@ -33,6 +33,9 @@ permissions: {}
 env:
   NPM_PIN: "11.15.0"
   NODE_PIN: "24.16.0"
+  # Single source of truth for the platform target dirs (the shell loops below read $TARGETS). The
+  # verify matrix is necessarily explicit (per-target runner/shell/mode) and must mirror this list.
+  TARGETS: "darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl win32-x64"
 
 jobs:
   # White-box Windows gate: the lock test suite must pass on Windows before anything publishes, and
@@ -139,16 +142,9 @@ jobs:
           VERSION: ${{ steps.guards.outputs.version }}
         run: |
           set -eu
-          npm pkg set \
-            "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
-            "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-arm64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-x64-musl=$VERSION" \
-            "optionalDependencies.agentlocks-linux-arm64-musl=$VERSION" \
-            "optionalDependencies.agentlocks-win32-x64=$VERSION"
-          VERSION="$VERSION" node -e '
-            const want = ["darwin-arm64","darwin-x64","linux-x64","linux-arm64","linux-x64-musl","linux-arm64-musl","win32-x64"].map((s) => "agentlocks-" + s);
+          for d in $TARGETS; do npm pkg set "optionalDependencies.agentlocks-$d=$VERSION"; done
+          node -e '
+            const want = process.env.TARGETS.trim().split(/\s+/).map((s) => "agentlocks-" + s);
             const od = require("./package.json").optionalDependencies || {};
             const got = Object.keys(od).sort();
             const exp = [...want].sort();
@@ -160,7 +156,7 @@ jobs:
         id: pack
         run: |
           set -eu
-          INTEGRITY="$(npm pack --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity);})')"
+          INTEGRITY="$(npm pack --json --ignore-scripts 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity);})')"
           mv agentlocks-*.tgz main.tgz
           echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
 
@@ -213,7 +209,7 @@ jobs:
           VERSION: ${{ steps.guards.outputs.version }}
         run: |
           set -eu
-          for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl win32-x64; do
+          for d in $TARGETS; do
             pkg="agentlocks-$d"
             ( cd "npm/$d" && npm pkg set "version=$VERSION" >/dev/null )
             # Pre-publish local guard: validate the manifest WE will publish (name/os/cpu/libc) and
@@ -237,7 +233,7 @@ jobs:
               if (!fs.existsSync(path.resolve("npm", d, "bin", exe))) fail("missing bin/" + exe);
             '
             # Our exact publishable bytes for this package (deterministic integrity).
-            OUR="$(cd "npm/$d" && npm pack --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
+            OUR="$(cd "npm/$d" && npm pack --json --ignore-scripts 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
             PUB="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
             if [ -n "$PUB" ]; then
               # Already on npm: accept ONLY if the bytes are ours (idempotent re-run); a mismatch is
@@ -245,8 +241,18 @@ jobs:
               [ "$OUR" = "$PUB" ] || { echo "::error::$pkg@$VERSION exists with different bytes (foreign/stale): ours=$OUR pub=$PUB"; exit 1; }
               echo "$pkg@$VERSION already published with matching bytes; skipping"
             else
-              ( cd "npm/$d" && npm publish --provenance --access public --tag preflight )
+              ( cd "npm/$d" && npm publish --provenance --access public --tag preflight --ignore-scripts )
             fi
+            # Post-publish: confirm the registry copy's bytes equal ours (covers a fresh publish, not
+            # only the pre-existing skip path above), retrying across CDN propagation.
+            GOT=""
+            j=1
+            while [ "$j" -le 6 ]; do
+              GOT="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
+              [ -n "$GOT" ] && break
+              echo "waiting for $pkg@$VERSION to propagate ($j)"; j=$((j + 1)); sleep 10
+            done
+            [ "$GOT" = "$OUR" ] || { echo "::error::$pkg@$VERSION published bytes != ours (got=$GOT ours=$OUR)"; exit 1; }
             # Manifest guard: name/version/os/cpu/libc must match what the dir declares, so a target
             # cannot ship under the wrong platform filter. (os/cpu/libc derived from the dir name.)
             npm view "$pkg@$VERSION" --json | D="$d" VERSION="$VERSION" node -e '
@@ -293,6 +299,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One leg per dir in $TARGETS (the env list above); explicit here because each leg carries
+        # its own runner/shell/container/mode. Keep this in sync with $TARGETS on a platform change.
         include:
           - target: linux-x64
             runner: ubuntu-24.04
@@ -367,10 +375,11 @@ jobs:
           done
           [ -n "$ok" ] || { echo "::error::install of main.tgz failed on $TARGET"; exit 1; }
 
-          # Assert this leg proved the intended target: the runner is really this OS/arch/libc, the
-          # matching platform package is installed at exactly $VERSION, and the launcher resolves THAT
-          # package binary. A mis-mapped runner label or wrong libc filter cannot leave a target
-          # green-but-unproved. (Globals are not on Node's default path: resolve via the global root.)
+          # Assert this leg proved the intended target: the runner is really this OS/arch/libc and the
+          # matching platform package is installed at exactly $VERSION with its binary resolvable. A
+          # mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. (The
+          # conformance run below then proves the installed launcher actually resolves and runs it;
+          # globals are not on Node's default path, so resolve via the global root.)
           NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node -e '
             const t = process.env.TARGET, v = process.env.VERSION;
             let dir = t, libc = null;
@@ -435,7 +444,7 @@ jobs:
               exit 1
             fi
           else
-            npm publish ./main.tgz --provenance --access public
+            npm publish ./main.tgz --provenance --access public --ignore-scripts
           fi
       - name: Terminal confirmation (post-flip; warns on propagation lag, hard-fails on wrong version)
         env:
@@ -478,10 +487,13 @@ jobs:
         run: |
           set -eu
           mkdir -p dist
-          for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl; do
-            cp "npm/$d/bin/agentlocks" "dist/agentlocks-$d"
+          for d in $TARGETS; do
+            if [ "$d" = "win32-x64" ]; then
+              cp "npm/$d/bin/agentlocks.exe" "dist/agentlocks-$d.exe"
+            else
+              cp "npm/$d/bin/agentlocks" "dist/agentlocks-$d"
+            fi
           done
-          cp "npm/win32-x64/bin/agentlocks.exe" "dist/agentlocks-win32-x64.exe"
           V="${GITHUB_REF_NAME#v}"
           awk -v v="## $V" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > dist/notes.md
           [ -s dist/notes.md ] || echo "Release $GITHUB_REF_NAME." > dist/notes.md

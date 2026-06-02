@@ -15,9 +15,9 @@ contract change in place with no migration layer.
   the transient `EPERM`/`EACCES`/`EBUSY` that `fs.rename` can raise over an existing file on
   Windows when a concurrent reader or scanner holds a handle (POSIX silently replaces it); the
   rename is retried with bounded backoff to stay correct under that contention. A `windows-unit`
-  CI job (`bun test` on `windows-latest`) gates both the
-  release pipeline and pull-request merges, so Windows-specific lock behavior cannot regress
-  between releases.
+  CI job (`bun test` on `windows-latest`) gates the release pipeline and, when set as a required
+  status check in branch protection, pull-request merges, so Windows-specific lock behavior cannot
+  regress between releases.
 - **Five-job, every-target-proven-before-`latest` release pipeline.** The release workflow is
   now `build -> publish-stage -> verify (matrix over all 7 targets) -> flip -> release-notes`.
   The `verify` matrix is a real `needs:` barrier: nothing `npm i -g agentlocks` resolves becomes

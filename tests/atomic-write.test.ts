@@ -69,6 +69,48 @@ test("rejects when rename always throws EPERM and leaves no temp file behind", a
   });
 });
 
+test("retries a rename that throws ENOENT then succeeds, leaving no temp file", async () => {
+  await withWorkspace(async (workspace) => {
+    const target = path.join(workspace, "enoent-retry.json");
+    const realRename = (await import("node:fs/promises")).rename;
+    let calls = 0;
+    const sleeps: number[] = [];
+    await writeFileAtomic(target, "ok\n", {
+      rename: async (from, to) => {
+        calls += 1;
+        if (calls <= 2) throw Object.assign(new Error("vanished"), { code: "ENOENT" });
+        await realRename(from, to);
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    expect(calls).toBe(3);
+    expect(sleeps).toHaveLength(2);
+    expect(await readFile(target, "utf8")).toBe("ok\n");
+    await expectNoTempFiles(workspace);
+  });
+});
+
+test("rejects when rename always throws ENOENT and leaves no temp file behind", async () => {
+  await withWorkspace(async (workspace) => {
+    const target = path.join(workspace, "enoent-exhausted.json");
+    let calls = 0;
+    await expect(
+      writeFileAtomic(target, "never\n", {
+        attempts: 4,
+        rename: async () => {
+          calls += 1;
+          throw Object.assign(new Error("vanished"), { code: "ENOENT" });
+        },
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow("vanished");
+    expect(calls).toBe(4);
+    await expectNoTempFiles(workspace);
+  });
+});
+
 test("rethrows a non-retryable rename error immediately without retrying", async () => {
   await withWorkspace(async (workspace) => {
     const target = path.join(workspace, "fatal.json");

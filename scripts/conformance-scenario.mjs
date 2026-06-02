@@ -11,10 +11,13 @@
 // Contract (the release workflow calls it exactly like this):
 //   node scripts/conformance-scenario.mjs "<agentlocks-invocation>" <mode>
 //   argv[2] = the agentlocks invocation. A single executable path: an absolute
-//             path to the npm-installed launcher shim, the literal "agentlocks"
-//             if on PATH, or a Windows ".cmd" shim. Spawned with
-//             shell:(platform==="win32") so a .cmd is invocable; on POSIX the
-//             binary is exec'd directly (shell:false), so we never assume bash.
+//             path to the npm-installed launcher shim, the built ".exe"
+//             (windows-unit), the literal "agentlocks" if on PATH, or a Windows
+//             ".cmd" shim. A real executable (path ending in ".exe", or anything
+//             on POSIX) is exec'd directly with shell:false and array args on
+//             every platform, so we never quote and never assume bash. Only a
+//             non-.exe invocation on Windows (an npm ".cmd" shim, which resolves
+//             only through a shell) falls back to shell:true with manual quoting.
 //   argv[3] = mode: "basic" or "extended".
 //
 // Exit 0 only if every assertion passes. On the first failed assertion it prints
@@ -33,6 +36,15 @@ import os from "node:os";
 import path from "node:path";
 
 const IS_WINDOWS = process.platform === "win32";
+
+// A real executable (a path ending in ".exe", case-insensitive) is spawned
+// directly with shell:false and array args on EVERY platform: no quoting, no
+// shell parsing. This is the windows-unit case, which runs the built .exe.
+// Only a non-.exe invocation on Windows is an npm ".cmd" shim, which resolves
+// solely through a shell, so that single case uses shell:true with manual
+// quoting. On POSIX everything is exec'd directly.
+const INVOCATION_IS_EXE = /\.exe$/i.test(process.argv[2] ?? "");
+const USE_SHELL = IS_WINDOWS && !INVOCATION_IS_EXE;
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -97,15 +109,17 @@ for (const key of HARNESS_DETECTION_ENV_KEYS) delete childEnv[key];
 // {status, stdout, stderr}. On a failed expectation it prints FAIL with the
 // captured streams and exits 1 immediately (first-failure semantics).
 //
-// On Windows the invocation may be a .cmd shim, which only resolves through a
-// shell, so spawn with shell:true there and shell:false on POSIX (no bash
-// assumption). With shell:true the command line is a single string, so the
-// executable and every arg are quoted to survive spaces and shell metacharacters.
+// A real .exe (and anything on POSIX) is spawned directly with shell:false and
+// array args, so spaces and metacharacters need no quoting. Only a non-.exe
+// invocation on Windows (an npm ".cmd" shim) resolves solely through a shell, so
+// that single case uses shell:true; with shell:true the command line is one
+// string, so the executable and every arg are quoted to survive spaces and shell
+// metacharacters.
 // ---------------------------------------------------------------------------
 
 function run(args, { expectExit = 0, label } = {}) {
   const step = label ?? `${args.join(" ")}`;
-  const result = IS_WINDOWS
+  const result = USE_SHELL
     ? spawnSync(quoteForShell(invocation), args.map(quoteForShell), {
         cwd,
         env: childEnv,
@@ -204,6 +218,13 @@ function assertLockId(id, label) {
   console.log(`PASS: ${label} returned lock id ${id}`);
 }
 
+// Synchronous sleep for `ms` milliseconds. The whole scenario is synchronous
+// (spawnSync), so a real timer can't be awaited; Atomics.wait blocks the thread
+// without spinning the CPU (a never-notified wait simply times out after `ms`).
+function sleepSyncMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function cleanup() {
   try {
     rmSync(cwd, { recursive: true, force: true });
@@ -243,6 +264,7 @@ function runExtended() {
   console.log("# extended scenario");
 
   extendedConflict();
+  extendedStaleReclaim();
   extendedGitCommit();
   extendedPathHandling();
 }
@@ -271,7 +293,105 @@ function extendedConflict() {
   });
 }
 
-// 5. git-index path: init a throwaway repo, stage a file, then exercise the
+// 5. Stale-lock reclaim (V2 requires the extended scenario to exercise it).
+//    Agent A acquires a path with a short lease; once that lease lapses and the
+//    owner's liveness can't be proven, the lock becomes reclaimable, and a
+//    second agent's `acquire --reclaim` takes it over in one command.
+//
+//    The reclaim path fires only when a lapsed lock is RECLAIMABLE. With no
+//    harness present, agentlocks can't probe owner liveness, so liveness is
+//    "unknown" and a lapsed lock stays in a grace window (default 90s) before it
+//    becomes reclaimable, which is too long for a test. We shorten it with a
+//    config file in the temp cwd: a tiny default ttl and zero unknown-liveness grace, so a
+//    lock is reclaimable the instant its lease lapses. The config is written
+//    only for this step and removed afterward, leaving the other steps on
+//    defaults. agentlocks resolves config from the host root, which is this temp
+//    cwd here (no .git yet), so the dropped file is the one it loads.
+function extendedStaleReclaim() {
+  const configPath = path.join(cwd, "agentlocks.config.ts");
+  // ttlMs is the default lease; we still pass an explicit short --ttl-ms below.
+  // maxTtlMs must stay >= that ttl. unknownLivenessGraceMs:0 is the key: it makes
+  // a lapsed, unprobeable lock reclaimable immediately instead of after 90s.
+  writeFileSync(
+    configPath,
+    [
+      "export default {",
+      "  defaults: {",
+      "    ttlMs: 250,",
+      "    maxTtlMs: 60_000,",
+      "    unknownLivenessGraceMs: 0,",
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+  );
+
+  try {
+    writeFileSync(path.join(cwd, "stale.txt"), "");
+
+    // Agent A takes the path with a 250ms lease.
+    const aAcquired = run(
+      [
+        "acquire",
+        "stale.txt",
+        "--reason",
+        "ci",
+        "--agent-id",
+        "ci-stale-A",
+        "--ttl-ms",
+        "250",
+        "--id-only",
+      ],
+      { label: "acquire stale.txt as ci-stale-A --ttl-ms 250 --id-only" },
+    );
+    const aLockId = firstLine(aAcquired.stdout);
+    assertLockId(aLockId, "stale-reclaim setup (agent A)");
+
+    // Wait just past A's 250ms lease so its lock lapses. With grace 0, that
+    // lapsed lock is immediately reclaimable. Keep the wait minimal.
+    sleepSyncMs(600);
+
+    // Agent B reclaims with --reclaim: exit 0, and the JSON must report A's stale
+    // lock under reclaimed_lock_ids, proving B actually took it over (not merely
+    // that some command returned 0, and not a self-idempotent re-acquire, since
+    // A and B are distinct agents).
+    const reclaimed = run(
+      ["acquire", "stale.txt", "--reason", "ci", "--agent-id", "ci-stale-B", "--reclaim", "--json"],
+      { label: "acquire stale.txt as ci-stale-B --reclaim --json (expect reclaim)" },
+    );
+    let parsed;
+    try {
+      parsed = JSON.parse(reclaimed.stdout);
+    } catch {
+      fail(
+        "stale-reclaim: acquire --reclaim did not emit valid JSON",
+        reclaimed.stdout,
+        reclaimed.stderr,
+      );
+    }
+    const reclaimedIds = Array.isArray(parsed.reclaimed_lock_ids) ? parsed.reclaimed_lock_ids : [];
+    if (!reclaimedIds.includes(aLockId)) {
+      fail(
+        `stale-reclaim: expected reclaimed_lock_ids to include A's lock ${aLockId}, got ${JSON.stringify(parsed.reclaimed_lock_ids)}`,
+        reclaimed.stdout,
+        reclaimed.stderr,
+      );
+    }
+    console.log(`PASS: stale lock ${aLockId} reclaimed by agent B`);
+
+    // Release B's fresh lock as agent B (identity-scoped).
+    const bLockId = typeof parsed.lock_id === "string" ? parsed.lock_id : "";
+    assertLockId(bLockId, "stale-reclaim (agent B new lock)");
+    run(["release", bLockId, "--agent-id", "ci-stale-B"], {
+      label: `release ${bLockId} (agent B)`,
+    });
+  } finally {
+    // Drop the config so the remaining steps run on defaults.
+    rmSync(configPath, { force: true });
+  }
+}
+
+// 6. git-index path: init a throwaway repo, stage a file, then exercise the
 //    high-level `commit` subcommand (which internally runs git begin -> git add
 //    -> git commit -> git end, rewriting the @git/index generation file, one of
 //    the two Windows rename-replace sites). Assert the commit lands and the lock
@@ -319,10 +439,18 @@ function extendedGitCommit() {
   assertNoActiveLocks("after agentlocks commit");
 }
 
-// 6. Path handling: acquire a path written with the platform's "wrong" separator
+// 7. Path handling: acquire a path written with the platform's "wrong" separator
 //    (a backslash on Windows, a forward slash elsewhere) for a file that exists.
 //    resources.ts normalizes backslashes to posix form, so this must succeed on
-//    Windows. Release it afterward.
+//    Windows.
+//
+//    On win32 we then PROVE the normalization rather than just accept a lock id:
+//    while agent A holds `sub\h.txt`, a different agent acquiring `sub/h.txt`
+//    (forward slash) must CONFLICT (exit 3). That can only happen if both
+//    separators normalize to the same resource; a regressed normalization would
+//    treat them as two distinct paths and let the second acquire succeed. On
+//    POSIX a backslash is a literal filename character (not a separator), so the
+//    cross-separator notion does not apply and we skip that assertion.
 function extendedPathHandling() {
   mkdirSync(path.join(cwd, "sub"), { recursive: true });
   // Write the file using the OS-native join so it really exists on disk...
@@ -331,13 +459,27 @@ function extendedPathHandling() {
   // exercising the backslash->posix normalization that the Windows port relies on.
   const lockPath = IS_WINDOWS ? "sub\\h.txt" : "sub/h.txt";
 
-  const acquired = run(["acquire", lockPath, "--reason", "ci", "--id-only"], {
-    label: `acquire ${lockPath} --reason ci --id-only`,
-  });
+  const acquired = run(
+    ["acquire", lockPath, "--reason", "ci", "--agent-id", "ci-path-A", "--id-only"],
+    { label: `acquire ${lockPath} as ci-path-A --id-only` },
+  );
   const lockId = firstLine(acquired.stdout);
   assertLockId(lockId, "path-handling acquire");
 
-  run(["release", lockId], { label: `release ${lockId} (path handling)` });
+  // win32 only: the same resource via the forward-slash spelling, held by a
+  // different agent, must conflict (exit 3): proof that "\" and "/" normalize
+  // to one resource. Skip on POSIX where "\" is a literal filename char.
+  if (IS_WINDOWS) {
+    run(["acquire", "sub/h.txt", "--reason", "ci", "--agent-id", "ci-path-B"], {
+      expectExit: 3,
+      label: "acquire sub/h.txt as ci-path-B (expect cross-separator conflict exit 3)",
+    });
+    console.log("PASS: backslash and forward-slash paths normalize to one resource");
+  }
+
+  run(["release", lockId, "--agent-id", "ci-path-A"], {
+    label: `release ${lockId} (path handling)`,
+  });
 }
 
 // Assert no active locks remain (used after the commit cycle to prove release).

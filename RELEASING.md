@@ -202,8 +202,10 @@ the correct platform deps for end users.
 
 ### Failure between the matrix and the flip
 
-`latest` is untouched. Re-run: `publish-stage` skips existing publishes, and the flip
-no-ops if `main@X` is already present with a matching provenance attestation from this run.
+`latest` is untouched. Re-run: `publish-stage` skips an existing platform publish when its bytes
+match (a content-integrity check, not just version presence), and the flip no-ops if `main@X` is
+already present with bytes whose integrity matches this run's packed tarball. A foreign or different
+`main@X` hard-fails instead of overwriting.
 
 ### Post-flip rollback (functional bug found after `latest` was flipped)
 
@@ -287,9 +289,9 @@ version. Bump to the next patch and re-cut.
   `publish-stage` step actually succeeded for that package.
 - **A `verify` leg fails on Windows with a file-operation error.** The Windows lock core
   (atomic rename-replace, liveness probes) has a regression. Fix the code, patch forward.
-- **The flip `provenance-match` check hard-fails on a pre-existing `main@X`.** A prior run
-  published `main@X` with different bytes (a moved tag or a foreign publish). Hard-fail is
-  correct: patch forward with a new version.
+- **The flip `integrity-match` check hard-fails on a pre-existing `main@X`.** A prior run
+  published `main@X` with different bytes (a moved tag or a foreign publish), so its tarball
+  integrity does not match this run's. Hard-fail is correct: patch forward with a new version.
 - **The `release-notes` job fails after a successful flip.** `latest` is correct; only the
   GitHub Release is missing. Re-run the `release-notes` job alone (it is idempotent:
   `gh release view || gh release create`).

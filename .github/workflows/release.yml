@@ -13,7 +13,7 @@ name: Release
 #   actions/upload-artifact   v7.0.1  (2026-04-10)
 #   actions/download-artifact v8.0.1  (2026-03-11)
 #   npm 11.15.0 (2026-05-20, >= the 11.5.1 OIDC floor); node 24.16.0 (2026-05-21)
-#   node:22.22.3-alpine3.23 (2026-05-14), digest-pinned below
+#   node:22.22.3-alpine3.23 (2026-05-14), digest-pinned in the verify matrix
 
 on:
   push:
@@ -33,7 +33,6 @@ permissions: {}
 env:
   NPM_PIN: "11.15.0"
   NODE_PIN: "24.16.0"
-  ALPINE_IMAGE: "node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920"
 
 jobs:
   # White-box Windows gate: the lock test suite must pass on Windows before anything publishes, and
@@ -89,12 +88,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # OIDC job: run the early guards, publish every platform package under a preflight tag (so an
-  # unverified @X is never what `npm i agentlocks-<plat>` resolves; main pins them by exact version,
-  # so the fanout resolves regardless of tag), guard each published manifest AND its bytes (integrity
-  # match, so a skip-if-exists reuse cannot accept foreign/stale bytes), inject and assert the
-  # optionalDependencies SET, then `npm pack` main into an artifact. Nothing that
-  # `npm i -g agentlocks` resolves exists after this job: main is packed, not published.
+  # OIDC job. Order matters: guard the tag, inject + pack main and record its integrity, run the
+  # monotonic-version guard (which uses that integrity to allow only an idempotent equal-version
+  # recovery), THEN publish the platform packages under a preflight tag (so an unverified @X is never
+  # what `npm i agentlocks-<plat>` resolves; main pins them by exact version). Each platform publish
+  # guards the manifest (name/os/cpu/libc) and the bytes (integrity match, so skip-if-exists cannot
+  # accept foreign/stale bytes). Nothing that `npm i -g agentlocks` resolves exists after this job:
+  # main is packed, not published.
   publish-stage:
     needs: [build, windows-unit]
     runs-on: ubuntu-latest
@@ -121,27 +121,59 @@ jobs:
         run: npm install -g "npm@${NPM_PIN}"
       - run: bun install --frozen-lockfile
 
-      - name: Early guards (ancestry, tag shape, tag == package.json, monotonic version)
+      - name: Early guards (tag shape, tag == package.json, ancestry)
         id: guards
         run: |
           set -eu
           VERSION="${GITHUB_REF_NAME#v}"
-          export VERSION
-
           # Tag shape: a plain X.Y.Z release only (the v* trigger also matches v1.2.3-rc.1).
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version not X.Y.Z: $VERSION"; exit 1; }
-
           # Tag must match the manifest.
           PKG="$(node -p "require('./package.json').version")"
           [ "$VERSION" = "$PKG" ] || { echo "::error::tag $VERSION != package.json $PKG"; exit 1; }
-
           # Tagged commit must be on the protected branch (a v* tag can point anywhere).
           git fetch origin main --quiet
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::tagged commit is not on origin/main"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          # Monotonic version. Fetch published versions with a retry (network); a brand-new package
-          # (E404) means first release. A genuine network failure FAILS the guard (it never passes
-          # vacuously). Compare as numeric tuples (not string, not semver: not a dependency).
+      - name: Inject optionalDependencies into main and assert the exact set
+        env:
+          VERSION: ${{ steps.guards.outputs.version }}
+        run: |
+          set -eu
+          npm pkg set \
+            "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
+            "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
+            "optionalDependencies.agentlocks-linux-x64=$VERSION" \
+            "optionalDependencies.agentlocks-linux-arm64=$VERSION" \
+            "optionalDependencies.agentlocks-linux-x64-musl=$VERSION" \
+            "optionalDependencies.agentlocks-linux-arm64-musl=$VERSION" \
+            "optionalDependencies.agentlocks-win32-x64=$VERSION"
+          VERSION="$VERSION" node -e '
+            const want = ["darwin-arm64","darwin-x64","linux-x64","linux-arm64","linux-x64-musl","linux-arm64-musl","win32-x64"].map((s) => "agentlocks-" + s);
+            const od = require("./package.json").optionalDependencies || {};
+            const got = Object.keys(od).sort();
+            const exp = [...want].sort();
+            if (got.length !== exp.length || got.some((k, i) => k !== exp[i])) { console.error("::error::optionalDependencies set mismatch: " + got.join(",")); process.exit(1); }
+            for (const k of want) if (od[k] !== process.env.VERSION) { console.error("::error::" + k + " pinned at " + od[k] + " not " + process.env.VERSION); process.exit(1); }
+          '
+
+      - name: Pack main into a tarball (NOT published here); record its integrity
+        id: pack
+        run: |
+          set -eu
+          INTEGRITY="$(npm pack --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity);})')"
+          mv agentlocks-*.tgz main.tgz
+          echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      - name: Monotonic version guard (equal-version allowed only as an idempotent recovery)
+        env:
+          VERSION: ${{ steps.guards.outputs.version }}
+          OUR: ${{ steps.pack.outputs.integrity }}
+        run: |
+          set -eu
+          # Fetch published versions with a retry (network); a brand-new package (E404) is the first
+          # release. A genuine network failure FAILS the guard (it never passes vacuously).
           VERSIONS_JSON=""
           i=1
           while [ "$i" -le 4 ]; do
@@ -150,22 +182,33 @@ jobs:
             if [ "$i" -eq 4 ]; then echo "::error::npm view agentlocks failed (network?)"; cat /tmp/npmerr; exit 1; fi
             i=$((i + 1)); sleep 5
           done
-          VERSIONS_JSON="$VERSIONS_JSON" node -e '
+          PUB_MAIN="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+          # Below max: fail. Equal max: pass ONLY when the published main bytes match this run (an
+          # idempotent recovery, which the flip then no-ops); otherwise foreign/stale -> fail.
+          # Strictly greater / first release: pass. Compared as numeric tuples (not string/semver).
+          VERSIONS_JSON="$VERSIONS_JSON" PUB_MAIN="$PUB_MAIN" node -e '
             const v = process.env.VERSION.split(".").map(Number);
             let versions = JSON.parse(process.env.VERSIONS_JSON || "[]");
             if (!Array.isArray(versions)) versions = [versions].filter(Boolean);
             const t = versions.map((s) => String(s).split(".").map(Number)).filter((x) => x.length === 3 && x.every(Number.isFinite));
             const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
             const max = t.sort(cmp).pop();
-            if (max && cmp(v, max) < 0) { console.error("::error::version " + process.env.VERSION + " is below the published max " + max.join(".")); process.exit(1); }
+            if (!max) process.exit(0);
+            const c = cmp(v, max);
+            if (c < 0) { console.error("::error::version " + process.env.VERSION + " is below the published max " + max.join(".")); process.exit(1); }
+            if (c === 0) {
+              if (process.env.PUB_MAIN && process.env.PUB_MAIN === process.env.OUR) { console.log("equal-max recovery re-run (main integrity matches)"); process.exit(0); }
+              console.error("::error::version " + process.env.VERSION + " already the published max with different bytes (not a recovery)"); process.exit(1);
+            }
           '
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download platform binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: platform-binaries
           path: npm
+      - name: Restore the executable bit (upload-artifact zips strip POSIX mode to 0644)
+        run: chmod +x npm/*/bin/agentlocks # the 6 unix binaries; win32 is agentlocks.exe (no +x needed)
 
       - name: Publish platform packages (preflight tag), guarding manifest + bytes
         env:
@@ -194,6 +237,7 @@ jobs:
                 let dir = process.env.D, libc = null;
                 if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
                 const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
+                if (os === "linux" && !libc) libc = "glibc"; // glibc packages declare libc:["glibc"]
                 const eq = (a, b) => Array.isArray(a) && a.length === 1 && a[0] === b;
                 const fail = (msg) => { console.error("::error::" + msg); process.exit(1); };
                 if (m.name !== "agentlocks-" + process.env.D) fail("name " + m.name);
@@ -205,40 +249,12 @@ jobs:
             '
           done
           # Provenance note: every publish above passes --provenance. Binding the attestation to THIS
-          # repo/workflow (gh attestation verify / npm audit signatures repo match) is confirmed at the
-          # one-time package bootstrap and hard-fails on mismatch; see RELEASING.md. The integrity
-          # guard above already rejects foreign bytes for any pre-existing package, tokenlessly.
+          # repo/workflow (gh attestation verify) is confirmed at the one-time package bootstrap and
+          # hard-fails on mismatch; see RELEASING.md. The integrity guard above already rejects
+          # foreign bytes for any pre-existing package, tokenlessly.
 
-      - name: Inject optionalDependencies into main and assert the exact set
-        env:
-          VERSION: ${{ steps.guards.outputs.version }}
-        run: |
-          set -eu
-          npm pkg set \
-            "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
-            "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-arm64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-x64-musl=$VERSION" \
-            "optionalDependencies.agentlocks-linux-arm64-musl=$VERSION" \
-            "optionalDependencies.agentlocks-win32-x64=$VERSION"
-          VERSION="$VERSION" node -e '
-            const want = ["darwin-arm64","darwin-x64","linux-x64","linux-arm64","linux-x64-musl","linux-arm64-musl","win32-x64"].map((s) => "agentlocks-" + s);
-            const od = require("./package.json").optionalDependencies || {};
-            const got = Object.keys(od).sort();
-            const exp = [...want].sort();
-            if (got.length !== exp.length || got.some((k, i) => k !== exp[i])) { console.error("::error::optionalDependencies set mismatch: " + got.join(",")); process.exit(1); }
-            for (const k of want) if (od[k] !== process.env.VERSION) { console.error("::error::" + k + " pinned at " + od[k] + " not " + process.env.VERSION); process.exit(1); }
-          '
-
-      - name: Pack main into a tarball artifact (NOT published here)
-        id: pack
-        run: |
-          set -eu
-          INTEGRITY="$(npm pack --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity);})')"
-          mv agentlocks-*.tgz main.tgz
-          echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload the packed main tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: main-tarball
           path: main.tgz
@@ -326,14 +342,29 @@ jobs:
           done
           [ -n "$ok" ] || { echo "::error::install of main.tgz failed on $TARGET"; exit 1; }
 
-          # Assert this leg proved the intended target: the matching platform package is installed at
-          # exactly $VERSION, so a mis-mapped runner label or wrong libc filter cannot leave a target
-          # green-but-unproved. Resolve against the global root (global packages are not on Node's
-          # default path).
+          # Assert this leg proved the intended target: the runner is really this OS/arch/libc, the
+          # matching platform package is installed at exactly $VERSION, and the launcher resolves THAT
+          # package binary. A mis-mapped runner label or wrong libc filter cannot leave a target
+          # green-but-unproved. (Globals are not on Node's default path: resolve via the global root.)
           NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node -e '
-            const ver = require("agentlocks-" + process.env.TARGET + "/package.json").version;
-            if (ver !== process.env.VERSION) { console.error("::error::installed agentlocks-" + process.env.TARGET + "@" + ver + " != " + process.env.VERSION); process.exit(1); }
-            console.log("identity OK: agentlocks-" + process.env.TARGET + "@" + ver);
+            const t = process.env.TARGET, v = process.env.VERSION;
+            let dir = t, libc = null;
+            if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
+            const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
+            if (os === "linux" && !libc) libc = "glibc";
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+            if (process.platform !== os) fail("runner platform " + process.platform + " != " + os);
+            if (process.arch !== cpu) fail("runner arch " + process.arch + " != " + cpu);
+            if (os === "linux") {
+              let isMusl = false;
+              try { isMusl = !process.report.getReport().header.glibcVersionRuntime; } catch {}
+              if ((libc === "musl") !== isMusl) fail("runner libc != " + libc);
+            }
+            const ver = require("agentlocks-" + t + "/package.json").version;
+            if (ver !== v) fail("installed agentlocks-" + t + "@" + ver + " != " + v);
+            const exe = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
+            const resolved = require.resolve("agentlocks-" + t + "/bin/" + exe);
+            console.log("identity OK: agentlocks-" + t + "@" + ver + " (" + process.platform + "/" + process.arch + (libc ? "/" + libc : "") + ") -> " + resolved);
           '
 
           # Invoke the npm-installed launcher shim by absolute path (never the platform binary
@@ -389,7 +420,9 @@ jobs:
           PREFIX="$(pwd)/.confirm-prefix"; mkdir -p "$PREFIX"; export npm_config_prefix="$PREFIX"
           i=1
           while [ "$i" -le 6 ]; do
-            if npm install -g "agentlocks@$VERSION"; then
+            # Unpinned install: proves `latest` itself now resolves $VERSION (an exact-version
+            # install would pass even if latest still pointed at the old release).
+            if npm install -g agentlocks; then
               GOT="$("$PREFIX/bin/agentlocks" --version || true)"
               case "$GOT" in
                 *"$VERSION"*) echo "latest resolves $VERSION"; exit 0 ;;

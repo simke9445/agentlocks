@@ -59,7 +59,7 @@ jobs:
   # Cross-compile every target binary into npm/<dir>/bin and hand them on as artifacts, plus the
   # conformance script the verify matrix runs (so verify needs no checkout / repo token). No secrets.
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -97,7 +97,7 @@ jobs:
   # main is packed, not published.
   publish-stage:
     needs: [build, windows-unit]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       id-token: write
@@ -109,17 +109,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # need history so the merge-base ancestry guard is meaningful
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.13
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_PIN }}
           registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; Node bundles an older npm. Pinned, not @latest.
+      # No `bun install` here: this OIDC (id-token) job runs only npm/node/git inline scripts, so
+      # project dependency lifecycle scripts never execute in the publish-credential context.
       - name: Pin npm
         run: npm install -g "npm@${NPM_PIN}"
-      - run: bun install --frozen-lockfile
 
       - name: Early guards (tag shape, tag == package.json, ancestry)
         id: guards
@@ -218,6 +216,26 @@ jobs:
           for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl win32-x64; do
             pkg="agentlocks-$d"
             ( cd "npm/$d" && npm pkg set "version=$VERSION" >/dev/null )
+            # Pre-publish local guard: validate the manifest WE will publish (name/os/cpu/libc) and
+            # that the binary is present, so a bad target fails BEFORE burning the immutable version.
+            # (The post-publish npm-view check below then confirms the registry copy.)
+            D="$d" node -e '
+              const fs = require("fs"), path = require("path");
+              const d = process.env.D;
+              const m = require(path.resolve("npm", d, "package.json"));
+              let dir = d, libc = null;
+              if (dir.endsWith("-musl")) { libc = "musl"; dir = dir.slice(0, -5); }
+              const i = dir.indexOf("-"), os = dir.slice(0, i), cpu = dir.slice(i + 1);
+              if (os === "linux" && !libc) libc = "glibc";
+              const eq = (a, b) => Array.isArray(a) && a.length === 1 && a[0] === b;
+              const fail = (x) => { console.error("::error::pre-publish " + d + ": " + x); process.exit(1); };
+              if (m.name !== "agentlocks-" + d) fail("name " + m.name);
+              if (!eq(m.os, os)) fail("os " + JSON.stringify(m.os));
+              if (!eq(m.cpu, cpu)) fail("cpu " + JSON.stringify(m.cpu));
+              if (libc ? !eq(m.libc, libc) : m.libc) fail("libc " + JSON.stringify(m.libc));
+              const exe = os === "win32" ? "agentlocks.exe" : "agentlocks";
+              if (!fs.existsSync(path.resolve("npm", d, "bin", exe))) fail("missing bin/" + exe);
+            '
             # Our exact publishable bytes for this package (deterministic integrity).
             OUR="$(cd "npm/$d" && npm pack --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
             PUB="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
@@ -248,10 +266,11 @@ jobs:
               });
             '
           done
-          # Provenance note: every publish above passes --provenance. Binding the attestation to THIS
-          # repo/workflow (gh attestation verify) is confirmed at the one-time package bootstrap and
-          # hard-fails on mismatch; see RELEASING.md. The integrity guard above already rejects
-          # foreign bytes for any pre-existing package, tokenlessly.
+          # The enforced foreign-byte gate is the integrity match above (in-workflow, tokenless): a
+          # pre-existing package is accepted only when its published bytes equal ours, else hard-fail.
+          # Every publish also passes --provenance, so consumers can verify origin via the npm
+          # attestation. Optional future hardening: a gh-attestation-verify repo match, which needs
+          # the packages to already exist, so it layers on at or after bootstrap (see RELEASING.md).
 
       - name: Upload the packed main tarball
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -276,7 +295,7 @@ jobs:
       matrix:
         include:
           - target: linux-x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             shell: bash
             mode: basic
           - target: linux-arm64
@@ -284,7 +303,7 @@ jobs:
             shell: bash
             mode: basic
           - target: linux-x64-musl
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
             shell: sh
             mode: basic
@@ -325,9 +344,15 @@ jobs:
           MODE: ${{ matrix.mode }}
         run: |
           set -eu
-          # Fresh, empty global prefix so a stale global install cannot contaminate the proof.
-          PREFIX="$(pwd)/.agentlocks-prefix"
-          mkdir -p "$PREFIX"
+          # Fresh, empty global prefix so a stale global install cannot contaminate the proof. On
+          # Windows the prefix must be a native path (Git Bash $(pwd) is MSYS-style), so the npm shim
+          # and its cmd.exe invocation resolve correctly.
+          mkdir -p "$(pwd)/.agentlocks-prefix"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            PREFIX="$(cygpath -w "$(pwd)/.agentlocks-prefix")"
+          else
+            PREFIX="$(pwd)/.agentlocks-prefix"
+          fi
           export npm_config_prefix="$PREFIX"
           # Force optional deps on even if a runner .npmrc carries omit=optional (which would skip the
           # platform package and let the Bun fallback produce a false pass).
@@ -370,14 +395,14 @@ jobs:
           # Invoke the npm-installed launcher shim by absolute path (never the platform binary
           # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the
           # runtime-asset extraction that --version/--help bypass.
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then BIN="$PREFIX/agentlocks"; else BIN="$PREFIX/bin/agentlocks"; fi
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then BIN="$PREFIX\\agentlocks.cmd"; else BIN="$PREFIX/bin/agentlocks"; fi
           AGENTLOCKS_DISABLE_BUN_FALLBACK=1 node conformance-scenario.mjs "$BIN" "$MODE"
 
   # The only irreversible, user-visible step, behind the one human approval. The approver sees the
   # full green matrix first. Publishes the SAME main.tgz the matrix installed.
   flip:
     needs: [verify, publish-stage]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
     permissions:
@@ -437,7 +462,7 @@ jobs:
   # main@X. Idempotent.
   release-notes:
     needs: flip
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write

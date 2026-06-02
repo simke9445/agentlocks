@@ -8,9 +8,9 @@ contract change in place with no migration layer.
 ### Added
 
 - **Windows (`win32-x64`) and musl (`linux-x64-musl`, `linux-arm64-musl`) are now supported
-  binary targets.** `npm i -g agentlocks` on Windows x64, Alpine (musl x64 and arm64), and
-  standard ARM64 Linux now resolves a prebuilt binary. The target set grows from four to seven
-  platform packages.
+  binary targets.** `npm i -g agentlocks` on Windows x64 and on Alpine (musl x64 and arm64) now
+  resolves a prebuilt binary; the launcher detects musl and resolves the `-musl` package. The
+  target set grows from four to seven platform packages.
 - **Windows-safe lock core.** The atomic rename-replace that writes lock records now tolerates
   the transient `EPERM`/`EACCES`/`EBUSY` that `fs.rename` can raise over an existing file on
   Windows when a concurrent reader or scanner holds a handle (POSIX silently replaces it); the

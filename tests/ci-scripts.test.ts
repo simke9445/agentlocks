@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -414,4 +414,103 @@ test("dist-integrity.sh: integrity on success (no trailing newline), empty on E4
   const absent = run("agentlocks@404");
   expect(absent.status).toBe(0);
   expect(absent.stdout).toBe("");
+});
+
+// --- The remaining CLI-glue paths the refactor moved out of heredocs: assert-optional-deps.mjs
+// (reads ./package.json from cwd), check-manifest.mjs local (reads npm/<dir>/package.json + probes
+// the binary) and tarball (stdin), and assert-target-identity.mjs (resolves the installed package
+// via NODE_PATH, as the no-checkout verify leg does). Staged in temp dirs so the env/cwd/stdin/
+// import wiring is exercised, not only the pure cores. ---
+
+test("assert-optional-deps.mjs CLI (cwd ./package.json): exact set passes, wrong version fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "od-"));
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({
+      name: "agentlocks",
+      version: "0.0.0",
+      optionalDependencies: { "agentlocks-darwin-arm64": "1.0.0", "agentlocks-linux-x64": "1.0.0" },
+    }),
+  );
+  const runIn = (version: string) =>
+    spawnSync("node", [join(ciDir, "assert-optional-deps.mjs")], {
+      cwd: dir,
+      env: { ...process.env, TARGETS: "darwin-arm64 linux-x64", VERSION: version },
+      encoding: "utf8",
+    });
+  expect(runIn("1.0.0").status).toBe(0);
+  const wrong = runIn("9.9.9");
+  expect(wrong.status).toBe(1);
+  expect(wrong.stderr).toContain("::error::agentlocks-darwin-arm64 pinned at 1.0.0 not 9.9.9");
+});
+
+test("check-manifest.mjs local CLI (staged npm/<dir>): missing binary fails, present passes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "manifest-"));
+  const pkgDir = join(dir, "npm", "linux-x64");
+  mkdirSync(join(pkgDir, "bin"), { recursive: true });
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({ name: "agentlocks-linux-x64", os: ["linux"], cpu: ["x64"], libc: ["glibc"] }),
+  );
+  const runLocal = () =>
+    spawnSync("node", [join(ciDir, "check-manifest.mjs"), "local", "linux-x64"], {
+      cwd: dir,
+      env: { ...process.env },
+      encoding: "utf8",
+    });
+  const missing = runLocal();
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain("::error::pre-publish linux-x64: missing bin/agentlocks");
+  writeFileSync(join(pkgDir, "bin", "agentlocks"), "#!/bin/sh\n");
+  expect(runLocal().status).toBe(0);
+});
+
+test("check-manifest.mjs tarball CLI (stdin): bin present passes, missing fails", () => {
+  const present = runMjs(
+    "check-manifest.mjs",
+    ["tarball", "win32-x64"],
+    {},
+    JSON.stringify([{ files: [{ path: "bin/agentlocks.exe" }, { path: "package.json" }] }]),
+  );
+  expect(present.status).toBe(0);
+  const missing = runMjs(
+    "check-manifest.mjs",
+    ["tarball", "win32-x64"],
+    {},
+    JSON.stringify([{ files: [{ path: "package.json" }] }]),
+  );
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain("tarball is missing bin/agentlocks.exe");
+});
+
+test("assert-target-identity.mjs CLI (NODE_PATH-staged): matching install passes, wrong version fails", () => {
+  // Use the runner's own platform/arch as the target so the process.platform/arch checks pass on any
+  // host. Stage the matching agentlocks-<target> under a temp node_modules and point NODE_PATH at it,
+  // mirroring the verify leg's NODE_PATH="$(npm root -g)".
+  const target = `${process.platform}-${process.arch}`;
+  const exe = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
+  const dir = mkdtempSync(join(tmpdir(), "identity-"));
+  const pkgDir = join(dir, "node_modules", `agentlocks-${target}`);
+  mkdirSync(join(pkgDir, "bin"), { recursive: true });
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({ name: `agentlocks-${target}`, version: "1.0.0" }),
+  );
+  writeFileSync(join(pkgDir, "bin", exe), "binary");
+  const runId = (version: string) =>
+    spawnSync("node", [join(ciDir, "assert-target-identity.mjs")], {
+      env: {
+        ...process.env,
+        NODE_PATH: join(dir, "node_modules"),
+        TARGET: target,
+        VERSION: version,
+      },
+      encoding: "utf8",
+    });
+  const ok = runId("1.0.0");
+  expect(ok.status).toBe(0);
+  expect(ok.stdout).toContain(`identity OK: agentlocks-${target}@1.0.0`);
+  const wrong = runId("2.0.0");
+  expect(wrong.status).toBe(1);
+  expect(wrong.stderr).toContain(`::error::installed agentlocks-${target}@1.0.0 != 2.0.0`);
 });

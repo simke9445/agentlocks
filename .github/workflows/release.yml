@@ -85,9 +85,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-scripts
-          # verify (no checkout) runs assert-target-identity.mjs, which imports ./platform-target.mjs;
-          # flip (no checkout) runs dist-integrity.sh. Ship all three so they resolve on those runners.
+          # verify (no checkout) runs verify-install-and-prove.sh -> assert-target-identity.mjs (which
+          # imports ./platform-target.mjs); flip (no checkout) runs dist-integrity.sh. Ship all four so
+          # they resolve on those runners (and, for the musl legs, inside the mounted docker workspace).
           path: |
+            scripts/ci/verify-install-and-prove.sh
             scripts/ci/assert-target-identity.mjs
             scripts/ci/platform-target.mjs
             scripts/ci/dist-integrity.sh
@@ -253,15 +255,17 @@ jobs:
   verify:
     needs: publish-stage
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     timeout-minutes: 25
     permissions: {}
     strategy:
       fail-fast: false
       matrix:
-        # One leg per dir in $TARGETS (the env list above); explicit here because each leg carries
-        # its own runner/container/mode. Keep this in sync with $TARGETS on a platform change. (Shell
-        # is a static `bash` on every leg; the `shell:` key cannot take a ${{ matrix }} expression.)
+        # One leg per dir in $TARGETS (the env list above); explicit here because each leg carries its
+        # own runner/mode (and musl_image for the two Alpine legs). Keep this in sync with $TARGETS on a
+        # platform change. The musl legs run on the glibc host, NOT in a job container: GitHub does not
+        # support JavaScript actions in Alpine containers on arm64 runners (proven on real CI), so they
+        # exec the proof in the pinned Alpine image via docker (see the install step). The shell is a
+        # static `bash` on every leg; the `shell:` key cannot take a ${{ matrix }} expression.
         include:
           - target: linux-x64
             runner: ubuntu-24.04
@@ -271,11 +275,11 @@ jobs:
             mode: basic
           - target: linux-x64-musl
             runner: ubuntu-24.04
-            container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
+            musl_image: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
             mode: basic
           - target: linux-arm64-musl
             runner: ubuntu-24.04-arm
-            container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
+            musl_image: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
             mode: basic
           - target: darwin-arm64
             runner: macos-latest
@@ -287,19 +291,12 @@ jobs:
             runner: windows-latest
             mode: extended
     steps:
-      # The Alpine musl legs run inside a musl container, but actions/* are JavaScript actions the
-      # runner executes with its own glibc-linked Node (mounted at /__e); without a glibc shim that
-      # Node cannot start on musl, so the download-artifact steps below would die before fetching
-      # anything. Install the shim (gcompat + libstdc++) and bash (Alpine ships only sh; the proof
-      # step is one bash script) FIRST, in the container's native sh, before any JS action runs.
-      # Skipped on the non-container legs. Package set validated against the pinned image: gcompat
-      # provides /lib/ld-linux-*, bash 5.3 present.
-      - name: Bootstrap the Alpine musl container (glibc shim for JS actions + bash for the proof)
-        if: ${{ matrix.container }}
-        shell: sh
-        run: apk add --no-cache gcompat libstdc++ bash
-      - name: Set up Node (skipped in the Alpine container, which ships its own node/npm)
-        if: ${{ !matrix.container }}
+      # download-artifact below is a JavaScript action; it runs on the glibc HOST for every leg (the
+      # musl legs are NOT a job container, since GitHub does not support JS actions in Alpine containers
+      # on arm64). setup-node gives the host the Node the native legs run the proof with; the musl legs
+      # run their proof inside the pinned Alpine image via docker, using that image's own Node.
+      - name: Set up Node
+        if: ${{ !matrix.musl_image }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_PIN }}
@@ -319,45 +316,21 @@ jobs:
           VERSION: ${{ needs.publish-stage.outputs.version }}
           TARGET: ${{ matrix.target }}
           MODE: ${{ matrix.mode }}
+          MUSL_IMAGE: ${{ matrix.musl_image }}
         run: |
           set -eu
-          # On Windows the npm prefix must be a native path (Git Bash $(pwd) is MSYS-style) so the npm
-          # shim and its cmd.exe invocation resolve; keep the MSYS path too for fs ops (rm/mkdir).
-          PREFIX_DIR="$(pwd)/.agentlocks-prefix"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then PREFIX="$(cygpath -w "$PREFIX_DIR")"; NP_SEP=";"; else PREFIX="$PREFIX_DIR"; NP_SEP=":"; fi
-          export npm_config_prefix="$PREFIX"
-          # Force optional deps on even if a runner .npmrc carries omit=optional (which would skip the
-          # platform package and let the Bun fallback produce a false pass).
-          export npm_config_omit=""
-          # Install AND the identity assertion are ONE retry unit, against a fresh prefix each attempt.
-          # Platform packages are optionalDependencies, so `npm install` SUCCEEDS even while the platform
-          # dep is still propagating and absent (npm tolerates a missing optional dep) -- retrying only
-          # the install would break on a binary-less success and the assert would then hard-fail instead
-          # of retrying. --prefer-online busts npm's negative-packument cache so a propagation miss is
-          # retried, not served stale. The assert proves this leg's target: the runner is really this
-          # OS/arch/libc and the matching platform package is installed at exactly $VERSION with its
-          # binary resolvable, so a mis-mapped runner label or wrong libc filter cannot leave a target
-          # green-but-unproved. npm nests the platform optional dep under the main package (verified:
-          # <global-root>/agentlocks/node_modules/, NOT hoisted to the global root), so NODE_PATH points
-          # there with the global root as a fallback. assert-target-identity.mjs is the ci-scripts
-          # artifact (no checkout here); the conformance run below then proves the launcher runs it.
-          ok=
-          i=1
-          while [ "$i" -le 6 ]; do
-            rm -rf "$PREFIX_DIR"; mkdir -p "$PREFIX_DIR"
-            if npm install -g ./main.tgz --include=optional --prefer-online; then
-              GLOBAL_ROOT="$(npm root -g)"
-              if NODE_PATH="$GLOBAL_ROOT/agentlocks/node_modules$NP_SEP$GLOBAL_ROOT" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs; then ok=1; break; fi
-            fi
-            echo "install+identity retry $i (agentlocks-$TARGET@$VERSION may still be propagating)"; i=$((i + 1)); sleep 10
-          done
-          [ -n "$ok" ] || { echo "::error::install+identity of agentlocks-$TARGET@$VERSION failed on this runner after retries"; exit 1; }
-
-          # Invoke the npm-installed launcher shim by absolute path (never the platform binary
-          # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the
-          # runtime-asset extraction that --version/--help bypass.
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then BIN="$PREFIX\\agentlocks.cmd"; else BIN="$PREFIX/bin/agentlocks"; fi
-          AGENTLOCKS_DISABLE_BUN_FALLBACK=1 node conformance-scenario.mjs "$BIN" "$MODE"
+          # The proof (install main.tgz -> assert identity -> conformance) lives in the ci-scripts
+          # artifact so it can run two ways. Non-musl legs run it natively. The musl legs are NOT a job
+          # container (GitHub does not support JS actions in Alpine containers on arm64), so they exec it
+          # inside the pinned Alpine image via docker (hosted runners ship docker); the download-artifact
+          # steps above already ran on the glibc host. The script reads env VERSION/TARGET/MODE (and
+          # RUNNER_OS, unset under docker -> POSIX branch). $PWD holds the downloaded artifacts.
+          if [ -n "${MUSL_IMAGE:-}" ]; then
+            docker run --rm -v "$PWD":/w -w /w -e VERSION -e TARGET -e MODE \
+              "$MUSL_IMAGE" sh scripts/ci/verify-install-and-prove.sh
+          else
+            bash scripts/ci/verify-install-and-prove.sh
+          fi
 
   # The only irreversible, user-visible step, behind the one human approval. The approver sees the
   # full green matrix first. Publishes the SAME main.tgz the matrix installed.

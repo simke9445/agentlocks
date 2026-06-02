@@ -20,11 +20,12 @@ on:
     tags:
       - "v*"
 
-# latest is a global resource: one release at a time, FIFO, never drop a queued tag, never cancel
-# a half-done flip. queue:max requires cancel-in-progress:false.
+# latest is a global resource: release one tag at a time and never cancel a half-done flip.
+# cancel-in-progress:false leaves an in-flight release running and queues a newer tag behind it.
+# (GitHub keeps the in-progress run plus only the most recent queued run, so tags pushed one at a
+# time release in order; there is no "keep every queued run" mode in Actions concurrency.)
 concurrency:
   group: release
-  queue: max
   cancel-in-progress: false
 
 # No workflow-wide privilege. Each job opts in to exactly what it needs.
@@ -259,37 +260,31 @@ jobs:
       fail-fast: false
       matrix:
         # One leg per dir in $TARGETS (the env list above); explicit here because each leg carries
-        # its own runner/shell/container/mode. Keep this in sync with $TARGETS on a platform change.
+        # its own runner/container/mode. Keep this in sync with $TARGETS on a platform change. (Shell
+        # is a static `bash` on every leg; the `shell:` key cannot take a ${{ matrix }} expression.)
         include:
           - target: linux-x64
             runner: ubuntu-24.04
-            shell: bash
             mode: basic
           - target: linux-arm64
             runner: ubuntu-24.04-arm
-            shell: bash
             mode: basic
           - target: linux-x64-musl
             runner: ubuntu-24.04
             container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
-            shell: sh
             mode: basic
           - target: linux-arm64-musl
             runner: ubuntu-24.04-arm
             container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
-            shell: sh
             mode: basic
           - target: darwin-arm64
             runner: macos-latest
-            shell: bash
             mode: basic
           - target: darwin-x64
             runner: macos-15-intel
-            shell: bash
             mode: basic
           - target: win32-x64
             runner: windows-latest
-            shell: bash
             mode: extended
     steps:
       - name: Set up Node (skipped in the Alpine container, which ships its own node/npm)
@@ -307,8 +302,12 @@ jobs:
         with:
           name: ci-scripts
           path: scripts/ci # assert-target-identity.mjs + its ./platform-target.mjs import land here
+      - name: Install bash (the Alpine musl container ships only sh; the proof below is one bash script)
+        if: ${{ matrix.container }}
+        shell: sh
+        run: apk add --no-cache bash
       - name: Install from the packed tarball and prove the real binary on this OS
-        shell: ${{ matrix.shell }}
+        shell: bash
         env:
           VERSION: ${{ needs.publish-stage.outputs.version }}
           TARGET: ${{ matrix.target }}

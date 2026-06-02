@@ -1,0 +1,8 @@
+# Force LF in the working tree on every OS. The windows-unit CI job compares CLI
+# output (built from \n template literals) against committed golden fixtures; a
+# Windows checkout that converted those goldens to CRLF would fail the golden
+# tests. Normalizing to LF keeps Windows byte-identical to Linux and macOS.
+* text=auto eol=lf
+
+# Tracked binaries: never normalize.
+*.png binary

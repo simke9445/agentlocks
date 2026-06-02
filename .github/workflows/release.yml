@@ -321,41 +321,37 @@ jobs:
           MODE: ${{ matrix.mode }}
         run: |
           set -eu
-          # Fresh, empty global prefix so a stale global install cannot contaminate the proof. On
-          # Windows the prefix must be a native path (Git Bash $(pwd) is MSYS-style), so the npm shim
-          # and its cmd.exe invocation resolve correctly.
-          mkdir -p "$(pwd)/.agentlocks-prefix"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            PREFIX="$(cygpath -w "$(pwd)/.agentlocks-prefix")"
-          else
-            PREFIX="$(pwd)/.agentlocks-prefix"
-          fi
+          # On Windows the npm prefix must be a native path (Git Bash $(pwd) is MSYS-style) so the npm
+          # shim and its cmd.exe invocation resolve; keep the MSYS path too for fs ops (rm/mkdir).
+          PREFIX_DIR="$(pwd)/.agentlocks-prefix"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then PREFIX="$(cygpath -w "$PREFIX_DIR")"; NP_SEP=";"; else PREFIX="$PREFIX_DIR"; NP_SEP=":"; fi
           export npm_config_prefix="$PREFIX"
           # Force optional deps on even if a runner .npmrc carries omit=optional (which would skip the
           # platform package and let the Bun fallback produce a false pass).
           export npm_config_omit=""
-          # --prefer-online busts npm's negative-packument cache so a propagation-lag miss is retried,
-          # not served stale. Retry the whole install across the platform package's CDN propagation.
+          # Install AND the identity assertion are ONE retry unit, against a fresh prefix each attempt.
+          # Platform packages are optionalDependencies, so `npm install` SUCCEEDS even while the platform
+          # dep is still propagating and absent (npm tolerates a missing optional dep) -- retrying only
+          # the install would break on a binary-less success and the assert would then hard-fail instead
+          # of retrying. --prefer-online busts npm's negative-packument cache so a propagation miss is
+          # retried, not served stale. The assert proves this leg's target: the runner is really this
+          # OS/arch/libc and the matching platform package is installed at exactly $VERSION with its
+          # binary resolvable, so a mis-mapped runner label or wrong libc filter cannot leave a target
+          # green-but-unproved. npm nests the platform optional dep under the main package (verified:
+          # <global-root>/agentlocks/node_modules/, NOT hoisted to the global root), so NODE_PATH points
+          # there with the global root as a fallback. assert-target-identity.mjs is the ci-scripts
+          # artifact (no checkout here); the conformance run below then proves the launcher runs it.
           ok=
           i=1
           while [ "$i" -le 6 ]; do
-            if npm install -g ./main.tgz --include=optional --prefer-online; then ok=1; break; fi
-            echo "install retry $i (platform package may still be propagating)"; i=$((i + 1)); sleep 10
+            rm -rf "$PREFIX_DIR"; mkdir -p "$PREFIX_DIR"
+            if npm install -g ./main.tgz --include=optional --prefer-online; then
+              GLOBAL_ROOT="$(npm root -g)"
+              if NODE_PATH="$GLOBAL_ROOT/agentlocks/node_modules$NP_SEP$GLOBAL_ROOT" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs; then ok=1; break; fi
+            fi
+            echo "install+identity retry $i (agentlocks-$TARGET@$VERSION may still be propagating)"; i=$((i + 1)); sleep 10
           done
-          [ -n "$ok" ] || { echo "::error::install of main.tgz failed on $TARGET"; exit 1; }
-
-          # Assert this leg proved the intended target: the runner is really this OS/arch/libc and the
-          # matching platform package is installed at exactly $VERSION with its binary resolvable. A
-          # mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. (The
-          # conformance run below then proves the installed launcher actually resolves and runs it;
-          # globals are not on Node's default path, so resolve via NODE_PATH.) The script is the
-          # ci-scripts artifact (no checkout here); it reads env TARGET/VERSION and resolves via NODE_PATH.
-          # npm installs the platform optional dep NESTED under the main package (verified: it lands at
-          # <global-root>/agentlocks/node_modules/, NOT hoisted to the global root), so point NODE_PATH
-          # there, with the global root as a fallback and a Windows-safe path separator.
-          GLOBAL_ROOT="$(npm root -g)"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then NP_SEP=";"; else NP_SEP=":"; fi
-          NODE_PATH="$GLOBAL_ROOT/agentlocks/node_modules$NP_SEP$GLOBAL_ROOT" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs
+          [ -n "$ok" ] || { echo "::error::install+identity of agentlocks-$TARGET@$VERSION failed on this runner after retries"; exit 1; }
 
           # Invoke the npm-installed launcher shim by absolute path (never the platform binary
           # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the

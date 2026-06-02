@@ -16,6 +16,27 @@ Make a commit every time a chunk of logic is implemented and unit tested. Do thi
 working on a branch or inside a worktree: each passing unit-tested chunk gets its own commit before
 moving on to the next.
 
+## Branch and merge policy
+
+Prefer trunk-based development: commit straight to `main`. agentlocks exists so multiple agents can
+share one worktree without clobbering, so branching for isolation is usually unnecessary. Coordinate
+with file locks, run `bun run check` before each commit, and push small green commits to `main` (see
+Commit policy). No branch means no merge, so no history is ever collapsed or lost.
+
+Branch only when a change must be gated before it reaches `main` (risky or large work needing CI or
+review first), is a throwaway experiment, or comes from an outside contributor.
+
+When you do merge a branch, preserve every commit. Never squash.
+
+- `git merge --no-ff <branch>` keeps every commit and the branch topology. Simplest, always safe.
+- Or rebase the branch onto `main` and fast-forward for a linear history that still keeps every
+  commit; use this only when each branch commit is green.
+- Keep `main` bisect-safe: every commit, branch or not, must build and pass on its own (the Commit
+  policy guarantees this, which is what makes preserving all commits safe).
+- Durable narrative (decisions, rejected approaches, lessons) lives in `CHANGELOG.md` and the task
+  ledger, not commit history.
+- Delete the branch after merge; its commits already live on `main`.
+
 ## Dependency policy
 
 When adding or recommending third-party packages, use `bun` for dependency resolution and package

@@ -61,43 +61,66 @@ jobs:
         run: bun run build:binaries
 
       # Platform packages publish first. Versions are stamped from the tag, so the
-      # four npm/*/package.json files are never hand-bumped. --provenance forces the
-      # attestation (some setups need it explicitly despite the docs).
+      # four npm/*/package.json files are never hand-bumped. Each publish is skipped
+      # when that version is already on npm, so the whole job is safe to re-run after
+      # a partial failure (published versions are immutable). --provenance forces the
+      # attestation.
       - name: Publish platform packages
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
-            ( cd "npm/$d" \
-              && npm pkg set "version=$VERSION" \
-              && npm publish --provenance --access public )
+            pkg="agentlocks-$d"
+            if [ "$(npm view "$pkg@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "$pkg@$VERSION already published, skipping"
+            else
+              ( cd "npm/$d" \
+                && npm pkg set "version=$VERSION" \
+                && npm publish --provenance --access public )
+            fi
           done
 
       # Inject optionalDependencies into the main manifest (NOT committed), then
       # publish. A plain checkout never declares unpublished deps, so frozen installs
-      # always resolve; only the published tarball carries these.
+      # always resolve; only the published tarball carries these. Skipped if already
+      # published, so a re-run after a partial failure is safe.
       - name: Publish main package
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          npm pkg set \
-            "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
-            "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-x64=$VERSION" \
-            "optionalDependencies.agentlocks-linux-arm64=$VERSION"
-          npm publish --provenance --access public
+          if [ "$(npm view "agentlocks@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "agentlocks@$VERSION already published, skipping"
+          else
+            npm pkg set \
+              "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
+              "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
+              "optionalDependencies.agentlocks-linux-x64=$VERSION" \
+              "optionalDependencies.agentlocks-linux-arm64=$VERSION"
+            npm publish --provenance --access public
+          fi
 
+      # Attach the binaries under unique names — all four share the basename
+      # "agentlocks", which collides as release assets (a file's basename is the asset
+      # name; `#label` only sets the display label). Notes come from the matching
+      # CHANGELOG section. Idempotent: a re-run clobbers assets on the existing release
+      # instead of failing.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "See [CHANGELOG.md](https://github.com/simke9445/agentlocks/blob/main/CHANGELOG.md)." \
-            "npm/darwin-arm64/bin/agentlocks#agentlocks-darwin-arm64" \
-            "npm/darwin-x64/bin/agentlocks#agentlocks-darwin-x64" \
-            "npm/linux-x64/bin/agentlocks#agentlocks-linux-x64" \
-            "npm/linux-arm64/bin/agentlocks#agentlocks-linux-arm64"
+          mkdir -p dist
+          for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            cp "npm/$d/bin/agentlocks" "dist/agentlocks-$d"
+          done
+          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > dist/notes.md
+          [ -s dist/notes.md ] || echo "Release $VERSION." > dist/notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/agentlocks-* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+              --notes-file dist/notes.md dist/agentlocks-*
+          fi
 
   # Clean-room end-to-end gate: install the just-published version from npm with no
   # Bun on the box, exactly like the manual "verify on a clean machine" step. Catches

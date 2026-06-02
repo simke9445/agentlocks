@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureDir, pathExists, readText } from "../io";
+import { ensureDir, pathExists, readText, writeFileAtomic } from "../io";
 import { formatJsonArtifact } from "../json";
 import { conflictingResources, resourceSetsConflict, resourcesCover } from "./matching";
 import { normalizeLockResources, unionResources } from "./resources";
@@ -630,9 +630,7 @@ export class FileLockRegistry {
     await ensureDir(this.lockRoot);
     const next = (await this.readGitIndexGeneration()) + 1;
     const target = path.join(this.lockRoot, GIT_INDEX_GENERATION_FILE);
-    const temp = `${target}.${process.pid}.${this.now().getTime()}.tmp`;
-    await fs.writeFile(temp, `${next}\n`, "utf8");
-    await fs.rename(temp, target);
+    await writeFileAtomic(target, `${next}\n`);
     return next;
   }
 
@@ -756,9 +754,7 @@ export class FileLockRegistry {
   private async writeLock(lock: FileLockRecord): Promise<void> {
     await ensureDir(this.activeDir);
     const target = this.lockPath(lock.lockId);
-    const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temp, `${formatJsonArtifact(lock)}\n`, "utf8");
-    await fs.rename(temp, target);
+    await writeFileAtomic(target, `${formatJsonArtifact(lock)}\n`);
   }
 
   private async appendEvent(

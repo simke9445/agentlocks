@@ -348,9 +348,14 @@ jobs:
           # matching platform package is installed at exactly $VERSION with its binary resolvable. A
           # mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. (The
           # conformance run below then proves the installed launcher actually resolves and runs it;
-          # globals are not on Node's default path, so resolve via the global root.) The script is the
+          # globals are not on Node's default path, so resolve via NODE_PATH.) The script is the
           # ci-scripts artifact (no checkout here); it reads env TARGET/VERSION and resolves via NODE_PATH.
-          NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs
+          # npm installs the platform optional dep NESTED under the main package (verified: it lands at
+          # <global-root>/agentlocks/node_modules/, NOT hoisted to the global root), so point NODE_PATH
+          # there, with the global root as a fallback and a Windows-safe path separator.
+          GLOBAL_ROOT="$(npm root -g)"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then NP_SEP=";"; else NP_SEP=":"; fi
+          NODE_PATH="$GLOBAL_ROOT/agentlocks/node_modules$NP_SEP$GLOBAL_ROOT" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs
 
           # Invoke the npm-installed launcher shim by absolute path (never the platform binary
           # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the

@@ -485,12 +485,14 @@ test("check-manifest.mjs tarball CLI (stdin): bin present passes, missing fails"
 
 test("assert-target-identity.mjs CLI (NODE_PATH-staged): matching install passes, wrong version fails", () => {
   // Use the runner's own platform/arch as the target so the process.platform/arch checks pass on any
-  // host. Stage the matching agentlocks-<target> under a temp node_modules and point NODE_PATH at it,
-  // mirroring the verify leg's NODE_PATH="$(npm root -g)".
+  // host. Stage the matching agentlocks-<target> exactly where `npm i -g agentlocks` puts it: NESTED
+  // under the main package (<root>/agentlocks/node_modules/agentlocks-<target>), not hoisted to the
+  // global root. NODE_PATH points at that nested node_modules, mirroring the verify leg's fixed value.
   const target = `${process.platform}-${process.arch}`;
   const exe = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
   const dir = mkdtempSync(join(tmpdir(), "identity-"));
-  const pkgDir = join(dir, "node_modules", `agentlocks-${target}`);
+  const mainNm = join(dir, "node_modules", "agentlocks", "node_modules");
+  const pkgDir = join(mainNm, `agentlocks-${target}`);
   mkdirSync(join(pkgDir, "bin"), { recursive: true });
   writeFileSync(
     join(pkgDir, "package.json"),
@@ -501,7 +503,7 @@ test("assert-target-identity.mjs CLI (NODE_PATH-staged): matching install passes
     spawnSync("node", [join(ciDir, "assert-target-identity.mjs")], {
       env: {
         ...process.env,
-        NODE_PATH: join(dir, "node_modules"),
+        NODE_PATH: mainNm,
         TARGET: target,
         VERSION: version,
       },

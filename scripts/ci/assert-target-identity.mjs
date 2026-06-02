@@ -4,7 +4,8 @@
 // Asserts this leg proved the intended target: the runner is really this OS/arch/libc and the
 // matching platform package is installed at exactly $VERSION with its binary resolvable. A
 // mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. Resolution
-// honors NODE_PATH (the workflow sets NODE_PATH="$(npm root -g)" so the global package resolves).
+// honors NODE_PATH; npm nests the platform optional dep under the main package, so the workflow sets
+// NODE_PATH to "<npm root -g>/agentlocks/node_modules" (with the global root as a fallback).
 //
 // Env: TARGET, VERSION. Runs under `node` in the verify matrix (process.report is Node's). The libc
 // derivation and the os/cpu split come from parseTarget (scripts/ci/platform-target.mjs).

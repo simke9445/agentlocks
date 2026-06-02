@@ -483,6 +483,16 @@ jobs:
             fi
           else
             npm publish ./main.tgz --provenance --access public --ignore-scripts
+            # Post-publish: confirm the registry now serves our exact bytes (propagation retry), the
+            # same integrity gate the pre-existing-main path applies above.
+            GOT=""
+            g=1
+            while [ "$g" -le 6 ]; do
+              GOT="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+              [ -n "$GOT" ] && break
+              echo "waiting for agentlocks@$VERSION to propagate ($g)"; g=$((g + 1)); sleep 10
+            done
+            [ "$GOT" = "$OUR_INTEGRITY" ] || { echo "::error::published agentlocks@$VERSION bytes != ours (got=$GOT ours=$OUR_INTEGRITY)"; exit 1; }
           fi
       - name: Terminal confirmation (post-flip; warns on propagation lag, hard-fails on wrong version)
         env:
@@ -494,7 +504,7 @@ jobs:
           while [ "$i" -le 6 ]; do
             # Unpinned install: proves `latest` itself now resolves $VERSION (an exact-version
             # install would pass even if latest still pointed at the old release).
-            if npm install -g agentlocks; then
+            if npm install -g agentlocks --ignore-scripts; then
               GOT="$("$PREFIX/bin/agentlocks" --version || true)"
               case "$GOT" in
                 *"$VERSION"*) echo "latest resolves $VERSION"; exit 0 ;;
@@ -536,6 +546,7 @@ jobs:
           awk -v v="## $V" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > dist/notes.md
           [ -s dist/notes.md ] || echo "Release $GITHUB_REF_NAME." > dist/notes.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md
             gh release upload "$GITHUB_REF_NAME" dist/agentlocks-* --clobber
           else
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file dist/notes.md dist/agentlocks-*

@@ -278,10 +278,12 @@ per-target verification in step 3 is what stands in for the gate. Do not skip it
    npm publish ./agentlocks-X.Y.Z.tgz --access public --ignore-scripts
    git checkout -- package.json   # optionalDependencies are never committed
    ```
-5. Confirm the live release resolves through `latest` on a clean machine with no Bun:
+5. Confirm the live release resolves through `latest` on a clean machine with no Bun. Install
+   **unpinned** so this proves the `latest` dist-tag actually moved (a pinned `@X.Y.Z` install would
+   pass even if `latest` still pointed at the old release), then check the printed version is X.Y.Z:
    ```bash
    docker run --rm node:22-slim bash -lc \
-     'npm i -g agentlocks@X.Y.Z && agentlocks --version'
+     'npm i -g agentlocks && agentlocks --version'
    ```
    Also confirm on Alpine (musl) and Windows if possible.
 

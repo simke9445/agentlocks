@@ -1,5 +1,10 @@
 # Production release pipeline for agentlocks
 
+> **Superseded by [PRODUCTION_CI_DESIGN_V2.md](PRODUCTION_CI_DESIGN_V2.md), which is what this branch
+> implements.** V2 proves every target (including Windows and musl) before the flip and ships seven
+> platform packages. This V1 document is the earlier glibc/darwin-only design with a post-flip
+> canary, kept for historical context only; it is not the current release contract.
+
 ## 1. TL;DR
 
 **Safety property:** a build with broken launcher wiring or a broken `linux-x64` binary never becomes the `latest` that `npm i -g agentlocks` resolves. Those are proven before the flip. One narrow gap stays open by choice (see below).

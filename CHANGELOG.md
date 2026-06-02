@@ -3,6 +3,30 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Added
+
+- **Windows (`win32-x64`) and musl (`linux-x64-musl`, `linux-arm64-musl`) are now supported
+  binary targets.** `npm i -g agentlocks` on Windows x64 and on Alpine (musl x64 and arm64) now
+  resolves a prebuilt binary; the launcher detects musl and resolves the `-musl` package. The
+  target set grows from four to seven platform packages.
+- **Windows-safe lock core.** The atomic rename-replace that writes lock records now tolerates
+  the transient `EPERM`/`EACCES`/`EBUSY` that `fs.rename` can raise over an existing file on
+  Windows when a concurrent reader or scanner holds a handle (POSIX silently replaces it); the
+  rename is retried with bounded backoff to stay correct under that contention. A `windows-unit`
+  CI job (`bun test` on `windows-latest`) gates the release pipeline and, when set as a required
+  status check in branch protection, pull-request merges, so Windows-specific lock behavior cannot
+  regress between releases.
+- **Five-job, every-target-proven-before-`latest` release pipeline.** The release workflow is
+  now `build -> publish-stage -> verify (matrix over all 7 targets) -> flip -> release-notes`.
+  The `verify` matrix is a real `needs:` barrier: nothing `npm i -g agentlocks` resolves becomes
+  `latest` until every target has installed and run a real lock cycle on its native OS (including
+  musl Alpine containers and a `windows-latest` runner). The flip is a plain `npm publish` of the
+  packed main tarball that the matrix already proved, so the pipeline stays tokenless via OIDC
+  trusted publishing with no dist-tag manipulation. The single human approval gates the flip job,
+  so the approver sees the full green matrix before authorizing the only irreversible step.
+
 ## 0.6.2
 
 ### Changed

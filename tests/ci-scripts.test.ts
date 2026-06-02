@@ -1,0 +1,516 @@
+import { expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertOptionalDeps } from "../scripts/ci/assert-optional-deps.mjs";
+import {
+  checkLocalManifest,
+  checkPublishedManifest,
+  checkTarballFiles,
+} from "../scripts/ci/check-manifest.mjs";
+import { checkMonotonic } from "../scripts/ci/check-monotonic.mjs";
+import { exeName, parseTarget } from "../scripts/ci/platform-target.mjs";
+
+// These exercise the pure cores of the extracted CI scripts (scripts/ci/*.mjs). They are the
+// isomorphism proof for the behavior-preserving decomposition of release.yml: the same derivations,
+// assertions, and ::error:: strings that were inlined as `node -e` heredocs, now imported and
+// asserted directly. The CLI wrappers and dist-integrity.sh keep their behavior via the workflow.
+
+// --- platform-target.mjs: the os/cpu/libc derivation (release.yml heredocs at lines ~240-243,
+// ~291-293, ~414-417) and the binary name. ---
+
+test("parseTarget derives os/cpu/libc for every target dir", () => {
+  expect(parseTarget("win32-x64")).toEqual({ os: "win32", cpu: "x64", libc: null });
+  expect(parseTarget("linux-x64-musl")).toEqual({ os: "linux", cpu: "x64", libc: "musl" });
+  expect(parseTarget("linux-arm64-musl")).toEqual({ os: "linux", cpu: "arm64", libc: "musl" });
+  expect(parseTarget("linux-x64")).toEqual({ os: "linux", cpu: "x64", libc: "glibc" });
+  expect(parseTarget("linux-arm64")).toEqual({ os: "linux", cpu: "arm64", libc: "glibc" });
+  expect(parseTarget("darwin-arm64")).toEqual({ os: "darwin", cpu: "arm64", libc: null });
+  expect(parseTarget("darwin-x64")).toEqual({ os: "darwin", cpu: "x64", libc: null });
+});
+
+test("exeName is agentlocks.exe only on win32, agentlocks elsewhere", () => {
+  expect(exeName("win32-x64")).toBe("agentlocks.exe");
+  expect(exeName("linux-x64")).toBe("agentlocks");
+  expect(exeName("linux-x64-musl")).toBe("agentlocks");
+  expect(exeName("linux-arm64-musl")).toBe("agentlocks");
+  expect(exeName("darwin-arm64")).toBe("agentlocks");
+  expect(exeName("darwin-x64")).toBe("agentlocks");
+});
+
+// --- check-monotonic.mjs: the version tuple-compare (release.yml lines 192-206). Returns a log
+// line on a pass, throws the exact ::error:: message on a fail. ---
+
+test("check-monotonic: below the published max fails", () => {
+  expect(() =>
+    checkMonotonic({
+      version: "1.0.0",
+      versionsJson: '["1.0.0","2.0.0","1.5.0"]',
+      our: "x",
+      pubMain: "",
+    }),
+  ).toThrow("::error::version 1.0.0 is below the published max 2.0.0");
+});
+
+test("check-monotonic: equal max with PUB_MAIN===OUR passes as an idempotent recovery", () => {
+  expect(
+    checkMonotonic({
+      version: "2.0.0",
+      versionsJson: '["1.0.0","2.0.0"]',
+      our: "sha512-AAA",
+      pubMain: "sha512-AAA",
+    }),
+  ).toBe("equal-max recovery re-run (main integrity matches)");
+});
+
+test("check-monotonic: equal max with a byte mismatch fails", () => {
+  expect(() =>
+    checkMonotonic({
+      version: "2.0.0",
+      versionsJson: '["1.0.0","2.0.0"]',
+      our: "sha512-AAA",
+      pubMain: "sha512-BBB",
+    }),
+  ).toThrow(
+    "::error::version 2.0.0 already the published max with different bytes (not a recovery)",
+  );
+});
+
+test("check-monotonic: strictly greater than the max passes", () => {
+  expect(
+    checkMonotonic({
+      version: "3.0.0",
+      versionsJson: '["1.0.0","2.0.0"]',
+      our: "x",
+      pubMain: "",
+    }),
+  ).toBe("");
+});
+
+test("check-monotonic: empty published versions (first release) passes", () => {
+  expect(checkMonotonic({ version: "1.0.0", versionsJson: "[]", our: "x", pubMain: "" })).toBe("");
+  expect(checkMonotonic({ version: "1.0.0", versionsJson: "", our: "x", pubMain: "" })).toBe("");
+});
+
+// --- assert-optional-deps.mjs: the optionalDependencies set assertion (release.yml lines 146-153).
+// ---
+
+const OD_TARGETS = "darwin-arm64 linux-x64";
+
+test("assert-optional-deps: the exact set at the right version passes", () => {
+  expect(() =>
+    assertOptionalDeps({
+      optionalDependencies: {
+        "agentlocks-darwin-arm64": "1.2.3",
+        "agentlocks-linux-x64": "1.2.3",
+      },
+      targets: OD_TARGETS,
+      version: "1.2.3",
+    }),
+  ).not.toThrow();
+});
+
+test("assert-optional-deps: a missing key fails", () => {
+  expect(() =>
+    assertOptionalDeps({
+      optionalDependencies: { "agentlocks-darwin-arm64": "1.2.3" },
+      targets: OD_TARGETS,
+      version: "1.2.3",
+    }),
+  ).toThrow("::error::optionalDependencies set mismatch: agentlocks-darwin-arm64");
+});
+
+test("assert-optional-deps: an extra key fails", () => {
+  expect(() =>
+    assertOptionalDeps({
+      optionalDependencies: {
+        "agentlocks-darwin-arm64": "1.2.3",
+        "agentlocks-linux-x64": "1.2.3",
+        "agentlocks-bogus": "1.2.3",
+      },
+      targets: OD_TARGETS,
+      version: "1.2.3",
+    }),
+  ).toThrow(
+    "::error::optionalDependencies set mismatch: agentlocks-bogus,agentlocks-darwin-arm64,agentlocks-linux-x64",
+  );
+});
+
+test("assert-optional-deps: a wrong version fails", () => {
+  expect(() =>
+    assertOptionalDeps({
+      optionalDependencies: {
+        "agentlocks-darwin-arm64": "1.2.3",
+        "agentlocks-linux-x64": "9.9.9",
+      },
+      targets: OD_TARGETS,
+      version: "1.2.3",
+    }),
+  ).toThrow("::error::agentlocks-linux-x64 pinned at 9.9.9 not 1.2.3");
+});
+
+// --- check-manifest.mjs: the local (pre-publish) and published (post-publish) manifest guards
+// (release.yml lines 236-252 and 287-301) plus the tarball file-list guard (lines 257-264). ---
+
+test("check-manifest local: a correct manifest with the binary present passes", () => {
+  expect(() =>
+    checkLocalManifest({
+      dir: "linux-x64-musl",
+      manifest: {
+        name: "agentlocks-linux-x64-musl",
+        os: ["linux"],
+        cpu: ["x64"],
+        libc: ["musl"],
+      },
+      binExists: () => true,
+    }),
+  ).not.toThrow();
+});
+
+test("check-manifest local: a wrong os fails", () => {
+  expect(() =>
+    checkLocalManifest({
+      dir: "linux-x64",
+      manifest: { name: "agentlocks-linux-x64", os: ["darwin"], cpu: ["x64"], libc: ["glibc"] },
+      binExists: () => true,
+    }),
+  ).toThrow('::error::pre-publish linux-x64: os ["darwin"]');
+});
+
+test("check-manifest local: a wrong cpu fails", () => {
+  expect(() =>
+    checkLocalManifest({
+      dir: "linux-x64",
+      manifest: { name: "agentlocks-linux-x64", os: ["linux"], cpu: ["arm64"], libc: ["glibc"] },
+      binExists: () => true,
+    }),
+  ).toThrow('::error::pre-publish linux-x64: cpu ["arm64"]');
+});
+
+test("check-manifest local: a wrong libc (glibc vs musl) fails", () => {
+  expect(() =>
+    checkLocalManifest({
+      dir: "linux-x64-musl",
+      manifest: {
+        name: "agentlocks-linux-x64-musl",
+        os: ["linux"],
+        cpu: ["x64"],
+        libc: ["glibc"],
+      },
+      binExists: () => true,
+    }),
+  ).toThrow('::error::pre-publish linux-x64-musl: libc ["glibc"]');
+});
+
+test("check-manifest local: a missing binary fails", () => {
+  expect(() =>
+    checkLocalManifest({
+      dir: "darwin-arm64",
+      manifest: { name: "agentlocks-darwin-arm64", os: ["darwin"], cpu: ["arm64"] },
+      binExists: () => false,
+    }),
+  ).toThrow("::error::pre-publish darwin-arm64: missing bin/agentlocks");
+});
+
+test("check-manifest tarball: bin present passes; win32 expects agentlocks.exe", () => {
+  expect(() =>
+    checkTarballFiles({
+      dir: "win32-x64",
+      packJson: [{ files: [{ path: "package.json" }, { path: "bin/agentlocks.exe" }] }],
+    }),
+  ).not.toThrow();
+  expect(() =>
+    checkTarballFiles({ dir: "linux-x64", packJson: [{ files: [{ path: "bin/agentlocks" }] }] }),
+  ).not.toThrow();
+});
+
+test("check-manifest tarball: a missing bin fails with the file list", () => {
+  expect(() =>
+    checkTarballFiles({
+      dir: "linux-x64",
+      packJson: [{ files: [{ path: "package.json" }, { path: "README.md" }] }],
+    }),
+  ).toThrow("::error::linux-x64 tarball is missing bin/agentlocks (files: package.json,README.md)");
+});
+
+test("check-manifest published: a correct manifest at the right version passes", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-arm64-musl",
+      manifest: {
+        name: "agentlocks-linux-arm64-musl",
+        version: "1.2.3",
+        os: ["linux"],
+        cpu: ["arm64"],
+        libc: ["musl"],
+      },
+      version: "1.2.3",
+    }),
+  ).not.toThrow();
+});
+
+test("check-manifest published: a wrong version fails", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-x64",
+      manifest: {
+        name: "agentlocks-linux-x64",
+        version: "9.9.9",
+        os: ["linux"],
+        cpu: ["x64"],
+        libc: ["glibc"],
+      },
+      version: "1.2.3",
+    }),
+  ).toThrow("::error::version 9.9.9");
+});
+
+test("check-manifest published: a wrong os fails", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-x64",
+      manifest: {
+        name: "agentlocks-linux-x64",
+        version: "1.2.3",
+        os: ["darwin"],
+        cpu: ["x64"],
+        libc: ["glibc"],
+      },
+      version: "1.2.3",
+    }),
+  ).toThrow('::error::os ["darwin"]');
+});
+
+test("check-manifest published: a wrong cpu fails", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-x64",
+      manifest: {
+        name: "agentlocks-linux-x64",
+        version: "1.2.3",
+        os: ["linux"],
+        cpu: ["arm64"],
+        libc: ["glibc"],
+      },
+      version: "1.2.3",
+    }),
+  ).toThrow('::error::cpu ["arm64"]');
+});
+
+test("check-manifest published: a wrong libc (glibc vs musl) fails", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-x64-musl",
+      manifest: {
+        name: "agentlocks-linux-x64-musl",
+        version: "1.2.3",
+        os: ["linux"],
+        cpu: ["x64"],
+        libc: ["glibc"],
+      },
+      version: "1.2.3",
+    }),
+  ).toThrow('::error::libc ["glibc"]');
+});
+
+test("check-manifest published: a wrong name fails", () => {
+  expect(() =>
+    checkPublishedManifest({
+      dir: "linux-x64",
+      manifest: {
+        name: "bogus",
+        version: "1.2.3",
+        os: ["linux"],
+        cpu: ["x64"],
+        libc: ["glibc"],
+      },
+      version: "1.2.3",
+    }),
+  ).toThrow("::error::name bogus");
+});
+
+// --- Integration: the CLI wrappers (env/arg/stdin wiring + exit codes) and dist-integrity.sh's
+// shell retry. The pure-core tests above prove the LOGIC; these prove the GLUE the workflow relies
+// on, including that an UNEXPECTED error re-throws (Node stack) rather than being swallowed as a
+// clean ::error:: line. ---
+
+const ciDir = fileURLToPath(new URL("../scripts/ci/", import.meta.url));
+const runMjs = (script: string, args: string[], env: Record<string, string>, stdin?: string) =>
+  spawnSync("node", [join(ciDir, script), ...args], {
+    env: { ...process.env, ...env },
+    input: stdin,
+    encoding: "utf8",
+  });
+
+test("check-monotonic.mjs CLI: greater passes, below-max fails clean, recovery passes", () => {
+  const greater = runMjs("check-monotonic.mjs", [], {
+    VERSION: "0.7.0",
+    VERSIONS_JSON: '["0.6.0"]',
+  });
+  expect(greater.status).toBe(0);
+
+  const below = runMjs("check-monotonic.mjs", [], { VERSION: "0.5.0", VERSIONS_JSON: '["0.6.0"]' });
+  expect(below.status).toBe(1);
+  expect(below.stderr).toContain("::error::version 0.5.0 is below the published max 0.6.0");
+
+  const recovery = runMjs("check-monotonic.mjs", [], {
+    VERSION: "0.6.0",
+    VERSIONS_JSON: '["0.6.0"]',
+    OUR: "sha512-x",
+    PUB_MAIN: "sha512-x",
+  });
+  expect(recovery.status).toBe(0);
+  expect(recovery.stdout).toContain("equal-max recovery re-run");
+});
+
+test("check-monotonic.mjs CLI re-throws an unexpected error (stack), not a clean ::error::", () => {
+  // The re-throw isomorphism fix: a non-::error:: failure (bad VERSIONS_JSON) crashes with a Node
+  // stack and a non-zero exit, exactly as the un-wrapped node -e did; it is not swallowed.
+  const bad = runMjs("check-monotonic.mjs", [], { VERSION: "0.7.0", VERSIONS_JSON: "not-json" });
+  expect(bad.status).not.toBe(0);
+  expect(bad.stderr).not.toContain("::error::");
+});
+
+test("check-manifest.mjs published CLI: matching manifest passes, wrong os fails clean", () => {
+  const ok = runMjs(
+    "check-manifest.mjs",
+    ["published", "win32-x64"],
+    { VERSION: "1.0.0" },
+    JSON.stringify({ name: "agentlocks-win32-x64", version: "1.0.0", os: ["win32"], cpu: ["x64"] }),
+  );
+  expect(ok.status).toBe(0);
+
+  const wrongOs = runMjs(
+    "check-manifest.mjs",
+    ["published", "win32-x64"],
+    { VERSION: "1.0.0" },
+    JSON.stringify({ name: "agentlocks-win32-x64", version: "1.0.0", os: ["linux"], cpu: ["x64"] }),
+  );
+  expect(wrongOs.status).toBe(1);
+  expect(wrongOs.stderr).toContain('::error::os ["linux"]');
+});
+
+test("dist-integrity.sh: integrity on success (no trailing newline), empty on E404", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fake-npm-"));
+  const shim = join(dir, "npm");
+  // `npm view <pkg> dist.integrity`: argv $2 is the pkg. A *@404 spec -> E404 (exit 1); else integrity.
+  writeFileSync(
+    shim,
+    '#!/bin/sh\ncase "$2" in\n  *@404) echo "npm error code E404" >&2; exit 1 ;;\n  *) echo "sha512-FAKE" ;;\nesac\n',
+  );
+  chmodSync(shim, 0o755);
+  const run = (pkg: string) =>
+    spawnSync("sh", [join(ciDir, "dist-integrity.sh"), pkg], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      encoding: "utf8",
+    });
+
+  const ok = run("agentlocks@1.0.0");
+  expect(ok.status).toBe(0);
+  expect(ok.stdout).toBe("sha512-FAKE"); // command substitution strips the trailing newline
+
+  const absent = run("agentlocks@404");
+  expect(absent.status).toBe(0);
+  expect(absent.stdout).toBe("");
+});
+
+// --- The remaining CLI-glue paths the refactor moved out of heredocs: assert-optional-deps.mjs
+// (reads ./package.json from cwd), check-manifest.mjs local (reads npm/<dir>/package.json + probes
+// the binary) and tarball (stdin), and assert-target-identity.mjs (resolves the installed package
+// via NODE_PATH, as the no-checkout verify leg does). Staged in temp dirs so the env/cwd/stdin/
+// import wiring is exercised, not only the pure cores. ---
+
+test("assert-optional-deps.mjs CLI (cwd ./package.json): exact set passes, wrong version fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "od-"));
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({
+      name: "agentlocks",
+      version: "0.0.0",
+      optionalDependencies: { "agentlocks-darwin-arm64": "1.0.0", "agentlocks-linux-x64": "1.0.0" },
+    }),
+  );
+  const runIn = (version: string) =>
+    spawnSync("node", [join(ciDir, "assert-optional-deps.mjs")], {
+      cwd: dir,
+      env: { ...process.env, TARGETS: "darwin-arm64 linux-x64", VERSION: version },
+      encoding: "utf8",
+    });
+  expect(runIn("1.0.0").status).toBe(0);
+  const wrong = runIn("9.9.9");
+  expect(wrong.status).toBe(1);
+  expect(wrong.stderr).toContain("::error::agentlocks-darwin-arm64 pinned at 1.0.0 not 9.9.9");
+});
+
+test("check-manifest.mjs local CLI (staged npm/<dir>): missing binary fails, present passes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "manifest-"));
+  const pkgDir = join(dir, "npm", "linux-x64");
+  mkdirSync(join(pkgDir, "bin"), { recursive: true });
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({ name: "agentlocks-linux-x64", os: ["linux"], cpu: ["x64"], libc: ["glibc"] }),
+  );
+  const runLocal = () =>
+    spawnSync("node", [join(ciDir, "check-manifest.mjs"), "local", "linux-x64"], {
+      cwd: dir,
+      env: { ...process.env },
+      encoding: "utf8",
+    });
+  const missing = runLocal();
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain("::error::pre-publish linux-x64: missing bin/agentlocks");
+  writeFileSync(join(pkgDir, "bin", "agentlocks"), "#!/bin/sh\n");
+  expect(runLocal().status).toBe(0);
+});
+
+test("check-manifest.mjs tarball CLI (stdin): bin present passes, missing fails", () => {
+  const present = runMjs(
+    "check-manifest.mjs",
+    ["tarball", "win32-x64"],
+    {},
+    JSON.stringify([{ files: [{ path: "bin/agentlocks.exe" }, { path: "package.json" }] }]),
+  );
+  expect(present.status).toBe(0);
+  const missing = runMjs(
+    "check-manifest.mjs",
+    ["tarball", "win32-x64"],
+    {},
+    JSON.stringify([{ files: [{ path: "package.json" }] }]),
+  );
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain("tarball is missing bin/agentlocks.exe");
+});
+
+test("assert-target-identity.mjs CLI (NODE_PATH-staged): matching install passes, wrong version fails", () => {
+  // Use the runner's own platform/arch as the target so the process.platform/arch checks pass on any
+  // host. Stage the matching agentlocks-<target> under a temp node_modules and point NODE_PATH at it,
+  // mirroring the verify leg's NODE_PATH="$(npm root -g)".
+  const target = `${process.platform}-${process.arch}`;
+  const exe = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
+  const dir = mkdtempSync(join(tmpdir(), "identity-"));
+  const pkgDir = join(dir, "node_modules", `agentlocks-${target}`);
+  mkdirSync(join(pkgDir, "bin"), { recursive: true });
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({ name: `agentlocks-${target}`, version: "1.0.0" }),
+  );
+  writeFileSync(join(pkgDir, "bin", exe), "binary");
+  const runId = (version: string) =>
+    spawnSync("node", [join(ciDir, "assert-target-identity.mjs")], {
+      env: {
+        ...process.env,
+        NODE_PATH: join(dir, "node_modules"),
+        TARGET: target,
+        VERSION: version,
+      },
+      encoding: "utf8",
+    });
+  const ok = runId("1.0.0");
+  expect(ok.status).toBe(0);
+  expect(ok.stdout).toContain(`identity OK: agentlocks-${target}@1.0.0`);
+  const wrong = runId("2.0.0");
+  expect(wrong.status).toBe(1);
+  expect(wrong.stderr).toContain(`::error::installed agentlocks-${target}@1.0.0 != 2.0.0`);
+});

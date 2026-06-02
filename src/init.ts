@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
   CLAUDE_AGENT_ENV_HOOK_BODY,
@@ -83,7 +84,14 @@ const CODEX_TRUST_NOTE =
   "warning; confirm via /hooks). The verify backstop will not run until trusted.";
 
 export async function runInit(options: InitOptions = {}): Promise<InitResult> {
-  const root = path.resolve(options.root ?? (await findHostRoot(options.cwd ?? process.cwd())));
+  const resolvedRoot = path.resolve(
+    options.root ?? (await findHostRoot(options.cwd ?? process.cwd())),
+  );
+  // Canonicalize the root so it matches realpath-based path checks (resources.ts already realpaths)
+  // and is stable cross-platform: resolves macOS /tmp -> /private/tmp and Windows 8.3 short names
+  // (RUNNER~1 -> runneradmin). Falls back to the resolved path if it does not exist yet (an explicit
+  // --root pointing at a not-yet-created directory).
+  const root = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
   const check = Boolean(options.check);
   const harness = options.harness ?? "auto";
   const resolvedHarness = resolveInitHarness(harness, process.env);

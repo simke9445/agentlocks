@@ -19,14 +19,39 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 
 const exeName = process.platform === "win32" ? "agentlocks.exe" : "agentlocks";
-const platformPackage = `agentlocks-${process.platform}-${process.arch}`;
+
+// On Linux the prebuilt binary is split by libc (glibc vs musl), matching npm's own `libc`
+// filter, so the package name carries a `-musl` suffix on musl. Node reports a glibc runtime
+// version only on glibc; its absence means musl. We try the detected variant first, then the
+// other: npm installs exactly the one matching the host, so the correct package still resolves
+// even if detection is wrong.
+function linuxIsMusl() {
+  try {
+    return !process.report.getReport().header.glibcVersionRuntime;
+  } catch {
+    return false;
+  }
+}
+
+function candidatePackages() {
+  if (process.platform === "linux") {
+    const base = `agentlocks-linux-${process.arch}`;
+    return linuxIsMusl() ? [`${base}-musl`, base] : [base, `${base}-musl`];
+  }
+  return [`agentlocks-${process.platform}-${process.arch}`];
+}
+
+const platformPackage = candidatePackages()[0];
 
 function resolvePrebuiltBinary() {
-  try {
-    return require.resolve(`${platformPackage}/bin/${exeName}`);
-  } catch {
-    return null;
+  for (const candidate of candidatePackages()) {
+    try {
+      return require.resolve(`${candidate}/bin/${exeName}`);
+    } catch {
+      // Wrong-libc variant is simply not installed; try the next candidate.
+    }
   }
+  return null;
 }
 
 function findBun() {

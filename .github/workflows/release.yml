@@ -1,151 +1,466 @@
 name: Release
 
+# V2 pipeline (see PRODUCTION_CI_DESIGN_V2.md): build -> publish-stage -> verify (matrix over
+# every target) -> flip -> release-notes. The verify matrix is a real `needs:` barrier in front of
+# the flip, so no release in which any platform binary fails to install-and-run on its real OS ever
+# becomes the `latest` that `npm i -g agentlocks` resolves. Stays tokenless: the flip is a plain
+# `npm publish` of the packed main tarball that OIDC trusted publishing already authorizes.
+#
+# Every mutable input is pinned (Section 6 step 8). Aged past the 7-day supply-chain window:
+#   actions/checkout      v6.0.2  (2026-01-09)
+#   oven-sh/setup-bun     v2.2.0  (2026-03-14)
+#   actions/setup-node    v6.4.0  (2026-04-20)
+#   actions/upload-artifact   v7.0.1  (2026-04-10)
+#   actions/download-artifact v8.0.1  (2026-03-11)
+#   npm 11.15.0 (2026-05-20, >= the 11.5.1 OIDC floor); node 24.16.0 (2026-05-21)
+#   node:22.22.3-alpine3.23 (2026-05-14), digest-pinned in the verify matrix
+
 on:
   push:
     tags:
       - "v*"
 
-# OIDC trusted publishing — no npm token anywhere.
-#   id-token: write  -> lets the runner mint the short-lived OIDC token npm trusts
-#   contents: write  -> only for creating the GitHub Release at the end
-permissions:
-  contents: write
-  id-token: write
+# latest is a global resource: one release at a time, FIFO, never drop a queued tag, never cancel
+# a half-done flip. queue:max requires cancel-in-progress:false.
+concurrency:
+  group: release
+  queue: max
+  cancel-in-progress: false
+
+# No workflow-wide privilege. Each job opts in to exactly what it needs.
+permissions: {}
+
+env:
+  NPM_PIN: "11.15.0"
+  NODE_PIN: "24.16.0"
+  # Single source of truth for the platform target dirs (the shell loops below read $TARGETS). The
+  # verify matrix is necessarily explicit (per-target runner/shell/mode) and must mirror this list.
+  TARGETS: "darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl win32-x64"
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Manual-approval gate. The `release` GitHub Environment has required reviewers,
-    # so a tag push pauses here until approved. The same environment name is set in
-    # each package's npm trusted-publisher config.
-    environment: release
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Check out the tagged commit
-        uses: actions/checkout@v6
+  # White-box Windows gate: the lock test suite must pass on Windows before anything publishes, and
+  # a freshly built win32 binary must pass the extended black-box scenario. Gates publish-stage.
+  # Shared with ci.yml via the reusable workflow (the steps live there).
+  windows-unit:
+    # A reusable workflow's token can only be downgraded by the caller, not elevated. The workflow
+    # default here is permissions:{}, so grant the checkout's contents:read at the call site (the
+    # inline job this replaced had it). Without this the reusable checkout runs with no token.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/windows-unit.yml
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+  # Cross-compile every target binary into npm/<dir>/bin and hand them on as artifacts, plus the
+  # conformance script the verify matrix runs (so verify needs no checkout / repo token). No secrets.
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.13
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
-      # Trusted publishing needs npm >= 11.5.1; Node 24 bundles an older npm.
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Derive version from tag and verify it matches package.json
-        id: version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p "require('./package.json').version")"
-          if [ "$VERSION" != "$PKG" ]; then
-            echo "::error::tag $GITHUB_REF_NAME ($VERSION) != package.json ($PKG)"; exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
+      - run: bun install --frozen-lockfile
       - name: Verify (test + typecheck + lint)
         run: bun run check
-
-      - name: Build all four platform binaries
+      - name: Cross-compile all platform binaries
         run: bun run build:binaries
+      - name: Upload platform binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-binaries
+          path: npm/*/bin/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the conformance script (verify runs it without a checkout)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-script
+          path: scripts/conformance-scenario.mjs
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the CI scripts the checkout-less jobs run (verify identity; flip integrity)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-scripts
+          # verify (no checkout) runs assert-target-identity.mjs, which imports ./platform-target.mjs;
+          # flip (no checkout) runs dist-integrity.sh. Ship all three so they resolve on those runners.
+          path: |
+            scripts/ci/assert-target-identity.mjs
+            scripts/ci/platform-target.mjs
+            scripts/ci/dist-integrity.sh
+          if-no-files-found: error
+          retention-days: 7
 
-      # Platform packages publish first. Versions are stamped from the tag, so the
-      # four npm/*/package.json files are never hand-bumped. Each publish is skipped
-      # when that version is already on npm, so the whole job is safe to re-run after
-      # a partial failure (published versions are immutable). --provenance forces the
-      # attestation.
-      - name: Publish platform packages
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+  # OIDC job. Order matters: guard the tag, inject + pack main and record its integrity, run the
+  # monotonic-version guard (which uses that integrity to allow only an idempotent equal-version
+  # recovery), THEN publish the platform packages under a preflight tag (so an unverified @X is never
+  # what `npm i agentlocks-<plat>` resolves; main pins them by exact version). Each platform publish
+  # guards the manifest (name/os/cpu/libc) and the bytes (integrity match, so skip-if-exists cannot
+  # accept foreign/stale bytes). Nothing that `npm i -g agentlocks` resolves exists after this job:
+  # main is packed, not published.
+  publish-stage:
+    needs: [build, windows-unit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.guards.outputs.version }}
+      main_integrity: ${{ steps.pack.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0 # need history so the merge-base ancestry guard is meaningful
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_PIN }}
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; Node bundles an older npm. Pinned, not @latest.
+      # No `bun install` here: this OIDC (id-token) job runs only npm/node/git inline scripts, so
+      # project dependency lifecycle scripts never execute in the publish-credential context.
+      - name: Pin npm
+        run: npm install -g "npm@${NPM_PIN}" --ignore-scripts
+
+      - name: Early guards (tag shape, tag == package.json, ancestry)
+        id: guards
         run: |
-          for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+          set -eu
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Tag shape: a plain X.Y.Z release only (the v* trigger also matches v1.2.3-rc.1).
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version not X.Y.Z: $VERSION"; exit 1; }
+          # Tag must match the manifest.
+          PKG="$(node -p "require('./package.json').version")"
+          [ "$VERSION" = "$PKG" ] || { echo "::error::tag $VERSION != package.json $PKG"; exit 1; }
+          # Tagged commit must be on the protected branch (a v* tag can point anywhere).
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::tagged commit is not on origin/main"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Inject optionalDependencies into main and assert the exact set
+        env:
+          VERSION: ${{ steps.guards.outputs.version }}
+        run: |
+          set -eu
+          for d in $TARGETS; do npm pkg set "optionalDependencies.agentlocks-$d=$VERSION"; done
+          # Assert the exact set { agentlocks-<target>: VERSION } (no more, no fewer). Reads
+          # ./package.json + env TARGETS/VERSION.
+          node scripts/ci/assert-optional-deps.mjs
+
+      - name: Pack main into a tarball (NOT published here); record its integrity
+        id: pack
+        run: |
+          set -eu
+          INTEGRITY="$(npm pack --json --ignore-scripts 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity);})')"
+          mv agentlocks-*.tgz main.tgz
+          echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      - name: Monotonic version guard (equal-version allowed only as an idempotent recovery)
+        env:
+          VERSION: ${{ steps.guards.outputs.version }}
+          OUR: ${{ steps.pack.outputs.integrity }}
+        run: |
+          set -eu
+          # Fetch published versions with a retry (network); a brand-new package (E404) is the first
+          # release. A genuine network failure FAILS the guard (it never passes vacuously).
+          VERSIONS_JSON=""
+          i=1
+          while [ "$i" -le 4 ]; do
+            if VERSIONS_JSON="$(npm view agentlocks versions --json 2>/tmp/npmerr)"; then break; fi
+            if grep -q "E404" /tmp/npmerr; then VERSIONS_JSON="[]"; break; fi
+            if [ "$i" -eq 4 ]; then echo "::error::npm view agentlocks failed (network?)"; cat /tmp/npmerr; exit 1; fi
+            i=$((i + 1)); sleep 5
+          done
+          # dist-integrity.sh: published main bytes (empty when absent via E404; fails on a persistent
+          # network/registry error). Same 4-try/5s loop as the other view_integrity call sites.
+          PUB_MAIN="$(sh scripts/ci/dist-integrity.sh "agentlocks@$VERSION")"
+          # Below max: fail. Equal max: pass ONLY when the published main bytes match this run (an
+          # idempotent recovery, which the flip then no-ops); otherwise foreign/stale -> fail.
+          # Strictly greater / first release: pass. Compared as numeric tuples (not string/semver).
+          # check-monotonic.mjs reads env VERSION/OUR (step env) + VERSIONS_JSON/PUB_MAIN (set here).
+          VERSIONS_JSON="$VERSIONS_JSON" PUB_MAIN="$PUB_MAIN" node scripts/ci/check-monotonic.mjs
+
+      - name: Download platform binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: platform-binaries
+          path: npm
+      - name: Restore the executable bit (upload-artifact zips strip POSIX mode to 0644)
+        run: chmod +x npm/*/bin/agentlocks # the 6 unix binaries; win32 is agentlocks.exe (no +x needed)
+
+      - name: Publish platform packages (preflight tag), guarding manifest + bytes
+        env:
+          VERSION: ${{ steps.guards.outputs.version }}
+        run: |
+          set -eu
+          for d in $TARGETS; do
             pkg="agentlocks-$d"
-            if [ "$(npm view "$pkg@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
-              echo "$pkg@$VERSION already published, skipping"
+            ( cd "npm/$d" && npm pkg set "version=$VERSION" >/dev/null )
+            # Pre-publish local guard: validate the manifest WE will publish (name/os/cpu/libc) and
+            # that the binary is present, so a bad target fails BEFORE burning the immutable version.
+            # (The post-publish npm-view check below then confirms the registry copy.)
+            node scripts/ci/check-manifest.mjs local "$d"
+            # Pack once: our exact publishable bytes (deterministic integrity) AND the tarball file
+            # list, so a `files` glob that drops or misnames the binary fails BEFORE publishing rather
+            # than only at the verify matrix.
+            PACKJSON="$(cd "npm/$d" && npm pack --json --ignore-scripts 2>/dev/null)"
+            echo "$PACKJSON" | node scripts/ci/check-manifest.mjs tarball "$d"
+            OUR="$(echo "$PACKJSON" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j[0].integrity)})')"
+            PUB="$(sh scripts/ci/dist-integrity.sh "$pkg@$VERSION")"
+            if [ -n "$PUB" ]; then
+              # Already on npm: accept ONLY if the bytes are ours (idempotent re-run); a mismatch is
+              # foreign or stale and must hard-fail (skip-if-exists must never accept foreign bytes).
+              [ "$OUR" = "$PUB" ] || { echo "::error::$pkg@$VERSION exists with different bytes (foreign/stale): ours=$OUR pub=$PUB"; exit 1; }
+              echo "$pkg@$VERSION already published with matching bytes; skipping"
             else
-              ( cd "npm/$d" \
-                && npm pkg set "version=$VERSION" \
-                && npm publish --provenance --access public )
+              ( cd "npm/$d" && npm publish --provenance --access public --tag preflight --ignore-scripts )
             fi
+            # Post-publish: confirm the registry copy's bytes equal ours (covers a fresh publish, not
+            # only the pre-existing skip path above), retrying across CDN propagation.
+            GOT=""
+            j=1
+            while [ "$j" -le 6 ]; do
+              GOT="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
+              [ -n "$GOT" ] && break
+              echo "waiting for $pkg@$VERSION to propagate ($j)"; j=$((j + 1)); sleep 10
+            done
+            [ "$GOT" = "$OUR" ] || { echo "::error::$pkg@$VERSION published bytes != ours (got=$GOT ours=$OUR)"; exit 1; }
+            # Manifest guard: name/version/os/cpu/libc must match what the dir declares, so a target
+            # cannot ship under the wrong platform filter. (os/cpu/libc derived from the dir name.)
+            npm view "$pkg@$VERSION" --json | VERSION="$VERSION" node scripts/ci/check-manifest.mjs published "$d"
           done
+          # The enforced foreign-byte gate is the integrity match above (in-workflow, tokenless): a
+          # pre-existing package is accepted only when its published bytes equal ours, else hard-fail.
+          # Every publish also passes --provenance, so consumers can verify origin via the npm
+          # attestation. Optional future hardening: a gh-attestation-verify repo match, which needs
+          # the packages to already exist, so it layers on at or after bootstrap (see RELEASING.md).
 
-      # Inject optionalDependencies into the main manifest (NOT committed), then
-      # publish. A plain checkout never declares unpublished deps, so frozen installs
-      # always resolve; only the published tarball carries these. Skipped if already
-      # published, so a re-run after a partial failure is safe.
-      - name: Publish main package
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if [ "$(npm view "agentlocks@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
-            echo "agentlocks@$VERSION already published, skipping"
-          else
-            npm pkg set \
-              "optionalDependencies.agentlocks-darwin-arm64=$VERSION" \
-              "optionalDependencies.agentlocks-darwin-x64=$VERSION" \
-              "optionalDependencies.agentlocks-linux-x64=$VERSION" \
-              "optionalDependencies.agentlocks-linux-arm64=$VERSION"
-            npm publish --provenance --access public
-          fi
+      - name: Upload the packed main tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: main-tarball
+          path: main.tgz
+          if-no-files-found: error
+          retention-days: 7
 
-      # Attach the binaries under unique names — all four share the basename
-      # "agentlocks", which collides as release assets (a file's basename is the asset
-      # name; `#label` only sets the display label). Notes come from the matching
-      # CHANGELOG section. Idempotent: a re-run clobbers assets on the existing release
-      # instead of failing.
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          mkdir -p dist
-          for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
-            cp "npm/$d/bin/agentlocks" "dist/agentlocks-$d"
-          done
-          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > dist/notes.md
-          [ -s dist/notes.md ] || echo "Release $VERSION." > dist/notes.md
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/agentlocks-* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
-              --notes-file dist/notes.md dist/agentlocks-*
-          fi
-
-  # Clean-room end-to-end gate: install the just-published version from npm with no
-  # Bun on the box, exactly like the manual "verify on a clean machine" step. Catches
-  # a broken binary or mis-wired optionalDependency before you announce the release.
+  # THE GATE. One leg per target on its native runner. No id-token and no checkout here: a job that
+  # runs freshly published binaries must hold neither the publish credential nor a repo token. It
+  # gets main.tgz and the conformance script as artifacts (download-artifact uses the runtime token,
+  # so permissions:{} is fine). fail-fast:false so every target reports.
   verify:
-    needs: release
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    needs: publish-stage
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 25
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # One leg per dir in $TARGETS (the env list above); explicit here because each leg carries
+        # its own runner/shell/container/mode. Keep this in sync with $TARGETS on a platform change.
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+            shell: bash
+            mode: basic
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            shell: bash
+            mode: basic
+          - target: linux-x64-musl
+            runner: ubuntu-24.04
+            container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
+            shell: sh
+            mode: basic
+          - target: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            container: node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
+            shell: sh
+            mode: basic
+          - target: darwin-arm64
+            runner: macos-latest
+            shell: bash
+            mode: basic
+          - target: darwin-x64
+            runner: macos-15-intel
+            shell: bash
+            mode: basic
+          - target: win32-x64
+            runner: windows-latest
+            shell: bash
+            mode: extended
     steps:
-      - name: Set up Node
-        uses: actions/setup-node@v6
+      - name: Set up Node (skipped in the Alpine container, which ships its own node/npm)
+        if: ${{ !matrix.container }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 24
-      - name: Install published package and check it runs
+          node-version: ${{ env.NODE_PIN }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: main-tarball
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: conformance-script
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts/ci # assert-target-identity.mjs + its ./platform-target.mjs import land here
+      - name: Install from the packed tarball and prove the real binary on this OS
+        shell: ${{ matrix.shell }}
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.publish-stage.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          MODE: ${{ matrix.mode }}
         run: |
-          for i in 1 2 3 4 5 6; do
-            npm install -g "agentlocks@$VERSION" && break
-            echo "registry not propagated yet, retry $i/6"; sleep 10
+          set -eu
+          # Fresh, empty global prefix so a stale global install cannot contaminate the proof. On
+          # Windows the prefix must be a native path (Git Bash $(pwd) is MSYS-style), so the npm shim
+          # and its cmd.exe invocation resolve correctly.
+          mkdir -p "$(pwd)/.agentlocks-prefix"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            PREFIX="$(cygpath -w "$(pwd)/.agentlocks-prefix")"
+          else
+            PREFIX="$(pwd)/.agentlocks-prefix"
+          fi
+          export npm_config_prefix="$PREFIX"
+          # Force optional deps on even if a runner .npmrc carries omit=optional (which would skip the
+          # platform package and let the Bun fallback produce a false pass).
+          export npm_config_omit=""
+          # --prefer-online busts npm's negative-packument cache so a propagation-lag miss is retried,
+          # not served stale. Retry the whole install across the platform package's CDN propagation.
+          ok=
+          i=1
+          while [ "$i" -le 6 ]; do
+            if npm install -g ./main.tgz --include=optional --prefer-online; then ok=1; break; fi
+            echo "install retry $i (platform package may still be propagating)"; i=$((i + 1)); sleep 10
           done
-          GOT="$(agentlocks --version)"
-          echo "agentlocks --version -> $GOT"
-          case "$GOT" in *"$VERSION"*) echo "OK" ;; *) echo "::error::version mismatch"; exit 1 ;; esac
+          [ -n "$ok" ] || { echo "::error::install of main.tgz failed on $TARGET"; exit 1; }
+
+          # Assert this leg proved the intended target: the runner is really this OS/arch/libc and the
+          # matching platform package is installed at exactly $VERSION with its binary resolvable. A
+          # mis-mapped runner label or wrong libc filter cannot leave a target green-but-unproved. (The
+          # conformance run below then proves the installed launcher actually resolves and runs it;
+          # globals are not on Node's default path, so resolve via the global root.) The script is the
+          # ci-scripts artifact (no checkout here); it reads env TARGET/VERSION and resolves via NODE_PATH.
+          NODE_PATH="$(npm root -g)" TARGET="$TARGET" VERSION="$VERSION" node scripts/ci/assert-target-identity.mjs
+
+          # Invoke the npm-installed launcher shim by absolute path (never the platform binary
+          # directly, never from PATH). With Bun fallback off, a real lock cycle exercises the
+          # runtime-asset extraction that --version/--help bypass.
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then BIN="$PREFIX\\agentlocks.cmd"; else BIN="$PREFIX/bin/agentlocks"; fi
+          AGENTLOCKS_DISABLE_BUN_FALLBACK=1 node conformance-scenario.mjs "$BIN" "$MODE"
+
+  # The only irreversible, user-visible step, behind the one human approval. The approver sees the
+  # full green matrix first. Publishes the SAME main.tgz the matrix installed.
+  flip:
+    needs: [verify, publish-stage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_PIN }}
+          registry-url: https://registry.npmjs.org
+      - name: Pin npm
+        run: npm install -g "npm@${NPM_PIN}" --ignore-scripts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: main-tarball
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts/ci # dist-integrity.sh (invoked via `sh`, since artifacts strip the +x bit)
+      - name: Flip latest (publish main.tgz), idempotent on a pre-existing main@X via integrity
+        env:
+          VERSION: ${{ needs.publish-stage.outputs.version }}
+          OUR_INTEGRITY: ${{ needs.publish-stage.outputs.main_integrity }}
+        run: |
+          set -eu
+          # dist-integrity.sh: published main bytes (empty when absent via E404; fails on a persistent
+          # network/registry error). Same 4-try/5s loop as the other view_integrity call sites.
+          PUB="$(sh scripts/ci/dist-integrity.sh "agentlocks@$VERSION")"
+          if [ -n "$PUB" ]; then
+            # main@X already exists. If its bytes are the ones this run packed, the run already
+            # flipped (recovery re-run) -> no-op. Otherwise foreign/stale bytes are live -> hard fail.
+            if [ "$PUB" = "$OUR_INTEGRITY" ]; then
+              echo "agentlocks@$VERSION already published with this run's bytes; flip is a no-op"
+            else
+              echo "::error::agentlocks@$VERSION exists with different bytes (ours=$OUR_INTEGRITY pub=$PUB); not overwriting"
+              exit 1
+            fi
+          else
+            npm publish ./main.tgz --provenance --access public --ignore-scripts
+            # Post-publish: confirm the registry now serves our exact bytes (propagation retry), the
+            # same integrity gate the pre-existing-main path applies above.
+            GOT=""
+            g=1
+            while [ "$g" -le 6 ]; do
+              GOT="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+              [ -n "$GOT" ] && break
+              echo "waiting for agentlocks@$VERSION to propagate ($g)"; g=$((g + 1)); sleep 10
+            done
+            [ "$GOT" = "$OUR_INTEGRITY" ] || { echo "::error::published agentlocks@$VERSION bytes != ours (got=$GOT ours=$OUR_INTEGRITY)"; exit 1; }
+          fi
+      - name: Terminal confirmation (post-flip; warns on propagation lag, hard-fails on wrong version)
+        env:
+          VERSION: ${{ needs.publish-stage.outputs.version }}
+        run: |
+          set -eu
+          PREFIX="$(pwd)/.confirm-prefix"; mkdir -p "$PREFIX"; export npm_config_prefix="$PREFIX"
+          i=1
+          while [ "$i" -le 6 ]; do
+            # Unpinned install: proves `latest` itself now resolves $VERSION (an exact-version
+            # install would pass even if latest still pointed at the old release).
+            if npm install -g agentlocks --ignore-scripts; then
+              GOT="$("$PREFIX/bin/agentlocks" --version || true)"
+              case "$GOT" in
+                *"$VERSION"*) echo "latest resolves $VERSION"; exit 0 ;;
+                *) echo "::error::latest resolved a wrong version: $GOT"; exit 1 ;;
+              esac
+            fi
+            echo "post-flip propagation retry $i"; i=$((i + 1)); sleep 10
+          done
+          echo "::warning::agentlocks@$VERSION not yet resolvable post-flip (propagation lag); not rolling back"
+
+  # Separate from flip so a re-run reaches it even when the flip step no-ops on an already-published
+  # main@X. Idempotent.
+  release-notes:
+    needs: flip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: platform-binaries
+          path: npm
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p dist
+          for d in $TARGETS; do
+            if [ "$d" = "win32-x64" ]; then
+              cp "npm/$d/bin/agentlocks.exe" "dist/agentlocks-$d.exe"
+            else
+              cp "npm/$d/bin/agentlocks" "dist/agentlocks-$d"
+            fi
+          done
+          V="${GITHUB_REF_NAME#v}"
+          awk -v v="## $V" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > dist/notes.md
+          [ -s dist/notes.md ] || echo "Release $GITHUB_REF_NAME." > dist/notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file dist/notes.md
+            gh release upload "$GITHUB_REF_NAME" dist/agentlocks-* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file dist/notes.md dist/agentlocks-*
+          fi

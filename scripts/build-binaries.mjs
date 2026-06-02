@@ -18,6 +18,9 @@ const TARGETS = [
   { dir: "darwin-x64", target: "bun-darwin-x64" },
   { dir: "linux-x64", target: "bun-linux-x64" },
   { dir: "linux-arm64", target: "bun-linux-arm64" },
+  { dir: "win32-x64", target: "bun-windows-x64" },
+  { dir: "linux-x64-musl", target: "bun-linux-x64-musl" },
+  { dir: "linux-arm64-musl", target: "bun-linux-arm64-musl" },
 ];
 
 const only = process.argv[2];
@@ -28,9 +31,7 @@ if (only && selected.length === 0) {
 }
 
 for (const { dir, target } of selected) {
-  // No Windows target yet (the launcher's win32 path degrades to the Bun fallback); when a
-  // windows-x64 entry is added to TARGETS, use "agentlocks.exe" for it.
-  const exe = "agentlocks";
+  const exe = dir === "win32-x64" ? "agentlocks.exe" : "agentlocks";
   const outDir = path.join(root, "npm", dir, "bin");
   mkdirSync(outDir, { recursive: true });
   const outfile = path.join(outDir, exe);

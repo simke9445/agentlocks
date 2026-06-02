@@ -3,7 +3,7 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
-## Unreleased
+## 0.6.2
 
 ### Changed
 

@@ -1,4 +1,9 @@
 import { expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertOptionalDeps } from "../scripts/ci/assert-optional-deps.mjs";
 import {
   checkLocalManifest,
@@ -324,4 +329,89 @@ test("check-manifest published: a wrong name fails", () => {
       version: "1.2.3",
     }),
   ).toThrow("::error::name bogus");
+});
+
+// --- Integration: the CLI wrappers (env/arg/stdin wiring + exit codes) and dist-integrity.sh's
+// shell retry. The pure-core tests above prove the LOGIC; these prove the GLUE the workflow relies
+// on, including that an UNEXPECTED error re-throws (Node stack) rather than being swallowed as a
+// clean ::error:: line. ---
+
+const ciDir = fileURLToPath(new URL("../scripts/ci/", import.meta.url));
+const runMjs = (script: string, args: string[], env: Record<string, string>, stdin?: string) =>
+  spawnSync("node", [join(ciDir, script), ...args], {
+    env: { ...process.env, ...env },
+    input: stdin,
+    encoding: "utf8",
+  });
+
+test("check-monotonic.mjs CLI: greater passes, below-max fails clean, recovery passes", () => {
+  const greater = runMjs("check-monotonic.mjs", [], {
+    VERSION: "0.7.0",
+    VERSIONS_JSON: '["0.6.0"]',
+  });
+  expect(greater.status).toBe(0);
+
+  const below = runMjs("check-monotonic.mjs", [], { VERSION: "0.5.0", VERSIONS_JSON: '["0.6.0"]' });
+  expect(below.status).toBe(1);
+  expect(below.stderr).toContain("::error::version 0.5.0 is below the published max 0.6.0");
+
+  const recovery = runMjs("check-monotonic.mjs", [], {
+    VERSION: "0.6.0",
+    VERSIONS_JSON: '["0.6.0"]',
+    OUR: "sha512-x",
+    PUB_MAIN: "sha512-x",
+  });
+  expect(recovery.status).toBe(0);
+  expect(recovery.stdout).toContain("equal-max recovery re-run");
+});
+
+test("check-monotonic.mjs CLI re-throws an unexpected error (stack), not a clean ::error::", () => {
+  // The re-throw isomorphism fix: a non-::error:: failure (bad VERSIONS_JSON) crashes with a Node
+  // stack and a non-zero exit, exactly as the un-wrapped node -e did; it is not swallowed.
+  const bad = runMjs("check-monotonic.mjs", [], { VERSION: "0.7.0", VERSIONS_JSON: "not-json" });
+  expect(bad.status).not.toBe(0);
+  expect(bad.stderr).not.toContain("::error::");
+});
+
+test("check-manifest.mjs published CLI: matching manifest passes, wrong os fails clean", () => {
+  const ok = runMjs(
+    "check-manifest.mjs",
+    ["published", "win32-x64"],
+    { VERSION: "1.0.0" },
+    JSON.stringify({ name: "agentlocks-win32-x64", version: "1.0.0", os: ["win32"], cpu: ["x64"] }),
+  );
+  expect(ok.status).toBe(0);
+
+  const wrongOs = runMjs(
+    "check-manifest.mjs",
+    ["published", "win32-x64"],
+    { VERSION: "1.0.0" },
+    JSON.stringify({ name: "agentlocks-win32-x64", version: "1.0.0", os: ["linux"], cpu: ["x64"] }),
+  );
+  expect(wrongOs.status).toBe(1);
+  expect(wrongOs.stderr).toContain('::error::os ["linux"]');
+});
+
+test("dist-integrity.sh: integrity on success (no trailing newline), empty on E404", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fake-npm-"));
+  const shim = join(dir, "npm");
+  // `npm view <pkg> dist.integrity`: argv $2 is the pkg. A *@404 spec -> E404 (exit 1); else integrity.
+  writeFileSync(
+    shim,
+    '#!/bin/sh\ncase "$2" in\n  *@404) echo "npm error code E404" >&2; exit 1 ;;\n  *) echo "sha512-FAKE" ;;\nesac\n',
+  );
+  chmodSync(shim, 0o755);
+  const run = (pkg: string) =>
+    spawnSync("sh", [join(ciDir, "dist-integrity.sh"), pkg], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      encoding: "utf8",
+    });
+
+  const ok = run("agentlocks@1.0.0");
+  expect(ok.status).toBe(0);
+  expect(ok.stdout).toBe("sha512-FAKE"); // command substitution strips the trailing newline
+
+  const absent = run("agentlocks@404");
+  expect(absent.status).toBe(0);
+  expect(absent.stdout).toBe("");
 });

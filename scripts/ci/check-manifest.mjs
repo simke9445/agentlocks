@@ -99,7 +99,13 @@ if (
       process.exit(1);
     }
   } catch (err) {
-    console.error(err.message);
-    process.exit(1);
+    // Guard failures carry the ::error:: marker and exit 1 (clean output, as the inline heredoc did).
+    // An unexpected tooling error (bad JSON, missing file) has no marker: re-throw so Node prints the
+    // full stack and exits non-zero, exactly as the un-wrapped node -e did.
+    if (typeof err?.message === "string" && err.message.startsWith("::error::")) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
   }
 }

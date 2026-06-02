@@ -76,4 +76,8 @@ jobs:
   # Configure this as a required status check (branch protection) on PRs so the Windows port cannot
   # regress between releases. The steps live in the reusable workflow, shared with release.yml.
   windows-unit:
+    # Explicit (ci.yml's default is already contents:read): a reusable workflow's token is capped by
+    # the caller, so grant the checkout's scope here too, matching release.yml.
+    permissions:
+      contents: read
     uses: ./.github/workflows/windows-unit.yml

@@ -42,6 +42,11 @@ jobs:
   # a freshly built win32 binary must pass the extended black-box scenario. Gates publish-stage.
   # Shared with ci.yml via the reusable workflow (the steps live there).
   windows-unit:
+    # A reusable workflow's token can only be downgraded by the caller, not elevated. The workflow
+    # default here is permissions:{}, so grant the checkout's contents:read at the call site (the
+    # inline job this replaced had it). Without this the reusable checkout runs with no token.
+    permissions:
+      contents: read
     uses: ./.github/workflows/windows-unit.yml
 
   # Cross-compile every target binary into npm/<dir>/bin and hand them on as artifacts, plus the

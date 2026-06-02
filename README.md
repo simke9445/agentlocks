@@ -294,8 +294,6 @@ When `--json` is present, parse and runtime errors use compact payloads shaped l
 Host repositories may add `agentlocks.config.ts` at the repository root. Defaults stay generic.
 
 ```ts
-import type { AgentlocksConfig } from "agentlocks";
-
 export default {
   // Display name used in generated instruction text. Defaults to the repo directory name.
   projectName: "example",
@@ -365,8 +363,12 @@ export default {
     updateAgents: true,
     updateGitignore: true,
   },
-} satisfies AgentlocksConfig;
+};
 ```
+
+The config is a plain object, validated when Agentlocks loads it (a bad key or wrong type fails with
+an actionable error). For editor autocomplete, add `agentlocks` as a dev dependency and append
+`satisfies AgentlocksConfig` (the type is exported from the package).
 
 Config discovery starts at the current working directory, walks up to the nearest `.git`, then
 loads `agentlocks.config.ts` if present. Without a config file, Agentlocks uses the defaults above.

@@ -3,6 +3,17 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Changed
+
+- **`agentlocks init` now generates a plain, commented `agentlocks.config.ts`.** It no longer emits
+  `import type { AgentlocksConfig } from "agentlocks"` / `satisfies AgentlocksConfig`, which made the
+  generated config show a `Cannot find module 'agentlocks'` error in editors whenever the CLI was
+  installed globally rather than as a local dependency (the common case). The config documents each
+  key inline and is validated at load, so the annotation was editor-only sugar. For autocomplete, add
+  agentlocks as a dev dependency and append `satisfies AgentlocksConfig`.
+
 ## 0.6.1
 
 ### Changed

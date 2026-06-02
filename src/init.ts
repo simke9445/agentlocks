@@ -205,30 +205,58 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
 }
 
 function agentlocksConfigTemplate(projectName: string): string {
-  return `import type { AgentlocksConfig } from "agentlocks";
+  return `// Agentlocks configuration. Every key is optional; omitted keys use the defaults shown, and the
+// values are validated on load with an actionable error on a bad key or wrong type. For editor
+// autocomplete, add agentlocks as a dev dependency and append "satisfies AgentlocksConfig".
 
 export default {
+  // Display name used in the generated AGENTS.md instructions. Defaults to the repo directory name.
   projectName: ${JSON.stringify(projectName)},
+
+  // Local lock-state root: active records under active/, events in events.jsonl, mutex as a .mutex dir.
   lockRoot: ".agentlocks/locks",
+
   command: {
+    // Command rendered into the generated AGENTS.md instructions.
     executable: "agentlocks",
   },
+
   defaults: {
+    // Default lease length (ms) for new locks and refreshes.
     ttlMs: 600_000,
+
+    // Upper bound (ms) accepted by --ttl-ms.
     maxTtlMs: 1_800_000,
+
+    // Grace (ms) after expiry when liveness can't be proven. Short, so a dead, un-probeable lock
+    // reclaims soon after its lease lapses. May be 0.
     unknownLivenessGraceMs: 90_000,
+
+    // When true, acquire takes over a conflict whose overlapping locks are all reclaimable, in one
+    // command (the acquire --reclaim flag always does this).
     autoReclaimOnConflict: false,
+
+    // When true, an agent's own acquire/expand/refresh extends its other held leases.
     keepAliveOnMutation: true,
   },
+
   owner: {
+    // Fallback id lookup for unsupported harnesses. Codex and Claude Code are detected automatically.
     envKeys: ["AGENTLOCKS_AGENT_ID"],
+
+    // Runtime harnesses checked first.
     harnesses: ["codex", "claude-code"],
+
+    // Generic fallback prefix when no harness, explicit id, or env id is available.
     fallbackPrefix: "agentlocks",
   },
+
   liveness: {
+    // "auto" probes by the owner's harness (Codex session index / Claude Code transcript), falling
+    // back to the grace window. "unknown" disables probing; "codex"/"claude-code" force one adapter.
     adapter: "auto",
   },
-} satisfies AgentlocksConfig;
+};
 `;
 }
 

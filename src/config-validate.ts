@@ -1,8 +1,9 @@
 // Runtime validation for Agentlocks config objects.
 //
-// TypeScript only checks a config file when the author opts in (an explicit
-// `satisfies AgentlocksConfig` annotation, which the generated template uses).
-// A hand-written config that skips the annotation gets no checking at all, so a
+// TypeScript only checks a config file when the author opts in with an explicit
+// `satisfies AgentlocksConfig` annotation, which the generated config omits so it
+// does not error when agentlocks is installed globally rather than as a local dep.
+// A config without that annotation gets no compile-time checking at all, so a
 // typo like `install:` (the real key is `init:`) or an invented key such as
 // `includeCodexEnv` would be silently dropped during resolution. This validator
 // closes that gap: it runs on every loaded config and rejects unknown or

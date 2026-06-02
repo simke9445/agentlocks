@@ -223,14 +223,14 @@ jobs:
             GOT=""
             j=1
             while [ "$j" -le 6 ]; do
-              GOT="$(npm view "$pkg@$VERSION" dist.integrity 2>/dev/null || true)"
+              GOT="$(npm view "$pkg@$VERSION" dist.integrity --prefer-online 2>/dev/null || true)"
               [ -n "$GOT" ] && break
               echo "waiting for $pkg@$VERSION to propagate ($j)"; j=$((j + 1)); sleep 10
             done
             [ "$GOT" = "$OUR" ] || { echo "::error::$pkg@$VERSION published bytes != ours (got=$GOT ours=$OUR)"; exit 1; }
             # Manifest guard: name/version/os/cpu/libc must match what the dir declares, so a target
             # cannot ship under the wrong platform filter. (os/cpu/libc derived from the dir name.)
-            npm view "$pkg@$VERSION" --json | VERSION="$VERSION" node scripts/ci/check-manifest.mjs published "$d"
+            npm view "$pkg@$VERSION" --json --prefer-online | VERSION="$VERSION" node scripts/ci/check-manifest.mjs published "$d"
           done
           # The enforced foreign-byte gate is the integrity match above (in-workflow, tokenless): a
           # pre-existing package is accepted only when its published bytes equal ours, else hard-fail.
@@ -287,6 +287,17 @@ jobs:
             runner: windows-latest
             mode: extended
     steps:
+      # The Alpine musl legs run inside a musl container, but actions/* are JavaScript actions the
+      # runner executes with its own glibc-linked Node (mounted at /__e); without a glibc shim that
+      # Node cannot start on musl, so the download-artifact steps below would die before fetching
+      # anything. Install the shim (gcompat + libstdc++) and bash (Alpine ships only sh; the proof
+      # step is one bash script) FIRST, in the container's native sh, before any JS action runs.
+      # Skipped on the non-container legs. Package set validated against the pinned image: gcompat
+      # provides /lib/ld-linux-*, bash 5.3 present.
+      - name: Bootstrap the Alpine musl container (glibc shim for JS actions + bash for the proof)
+        if: ${{ matrix.container }}
+        shell: sh
+        run: apk add --no-cache gcompat libstdc++ bash
       - name: Set up Node (skipped in the Alpine container, which ships its own node/npm)
         if: ${{ !matrix.container }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -302,10 +313,6 @@ jobs:
         with:
           name: ci-scripts
           path: scripts/ci # assert-target-identity.mjs + its ./platform-target.mjs import land here
-      - name: Install bash (the Alpine musl container ships only sh; the proof below is one bash script)
-        if: ${{ matrix.container }}
-        shell: sh
-        run: apk add --no-cache bash
       - name: Install from the packed tarball and prove the real binary on this OS
         shell: bash
         env:
@@ -400,7 +407,7 @@ jobs:
             GOT=""
             g=1
             while [ "$g" -le 6 ]; do
-              GOT="$(npm view "agentlocks@$VERSION" dist.integrity 2>/dev/null || true)"
+              GOT="$(npm view "agentlocks@$VERSION" dist.integrity --prefer-online 2>/dev/null || true)"
               [ -n "$GOT" ] && break
               echo "waiting for agentlocks@$VERSION to propagate ($g)"; g=$((g + 1)); sleep 10
             done
@@ -415,12 +422,16 @@ jobs:
           i=1
           while [ "$i" -le 6 ]; do
             # Unpinned install: proves `latest` itself now resolves $VERSION (an exact-version
-            # install would pass even if latest still pointed at the old release).
-            if npm install -g agentlocks --ignore-scripts; then
+            # install would pass even if latest still pointed at the old release). --prefer-online so a
+            # cached old packument cannot mask the just-flipped latest.
+            if npm install -g agentlocks --prefer-online --ignore-scripts; then
               GOT="$("$PREFIX/bin/agentlocks" --version || true)"
               case "$GOT" in
                 *"$VERSION"*) echo "latest resolves $VERSION"; exit 0 ;;
-                *) echo "::error::latest resolved a wrong version: $GOT"; exit 1 ;;
+                # A wrong version is edge/CDN propagation lag (npm publish set latest=$VERSION
+                # atomically and the flip already integrity-proved those bytes are live), not a failed
+                # flip -- keep retrying rather than hard-failing a release that cannot be rolled back.
+                *) echo "latest still resolves '$GOT' (propagation lag)" ;;
               esac
             fi
             echo "post-flip propagation retry $i"; i=$((i + 1)); sleep 10

@@ -9,7 +9,7 @@ set -eu
 
 vi_out=""; vi_k=1
 while [ "$vi_k" -le 4 ]; do
-  if vi_out="$(npm view "$1" dist.integrity 2>/tmp/vierr)"; then printf '%s' "$vi_out"; exit 0; fi
+  if vi_out="$(npm view "$1" dist.integrity --prefer-online 2>/tmp/vierr)"; then printf '%s' "$vi_out"; exit 0; fi
   grep -q "E404" /tmp/vierr && exit 0
   vi_k=$((vi_k + 1)); sleep 5
 done

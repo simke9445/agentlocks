@@ -24,7 +24,7 @@ The cost is latency: the flip waits on build + N publishes + an N-way matrix (ab
 
 **Windows is a real port, not just a build target** (Section 4.7): agentlocks' lock core uses POSIX-shaped behavior (atomic rename-replace, `process.kill(pid, 0)` liveness, path handling) that differs on Windows. The matrix's Windows leg is the forcing function: its extended lock scenario (Section 4.4) plus a `windows-latest` job running the full lock test suite stay red until the port is correct, so "support Windows" means "make agentlocks correct on Windows, proven by a gating leg and green Windows unit tests," not "compile an `.exe`."
 
-**Supply-chain pinning is in-scope, not deferred:** the flip job holds `id-token: write`, so the change pins every mutable input (Section 6) — SHA-pinned third-party actions, a vetted npm pin replacing `npm install -g npm@latest`, Bun and Node pinned via the `setup-*` version inputs, and the Alpine musl-verify image pinned by digest. The guarantee rests on no mutable input.
+**Supply-chain pinning is in-scope, not deferred:** the flip job holds `id-token: write`, so the change pins every mutable input (Section 6): SHA-pinned third-party actions, a vetted npm pin replacing `npm install -g npm@latest`, Bun and Node pinned via the `setup-*` version inputs, and the Alpine musl-verify image pinned by digest. The guarantee rests on no mutable input.
 
 ## 2. How npm releases actually work (the facts that constrain everything)
 

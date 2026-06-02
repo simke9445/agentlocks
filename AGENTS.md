@@ -67,3 +67,10 @@ bun run --silent agentlocks -- git end <git_lock_id> --release-lock <lock_id>
 - Keep tests focused on file-backed lock semantics, CLI parsing/rendering, config loading, install
   idempotency, and generated instruction text.
 - Keep docs aligned with the public CLI and the library API.
+
+## Releasing
+
+To cut or tag a release, follow `RELEASING.md`. Default to a PATCH bump; choose a minor only if the
+changes since the last tag include new features or contract changes, and state which you picked and
+why. After pushing the tag, stop at the `release` environment gate. Never approve the deployment
+yourself: that approval is the maintainer's irreversible publish step.

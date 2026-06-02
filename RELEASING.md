@@ -43,6 +43,33 @@ linux-musl have no prebuilt binary yet and use the Bun fallback.
 The `verify` job is the real gate: green means `npm i -g agentlocks@X.Y.Z` works on a machine with no
 Bun.
 
+## Delegating to an agent
+
+The steps above are mechanical except for two judgment calls (which version to bump, and approving
+the gate), so an agent can drive a release end to end. `AGENTS.md` routes any agent here and pins the
+two rules it cannot guess: default to a PATCH bump, and never approve the `release` gate itself. So a
+bare "tag a new release" is enough. Paste the prompt below when you want to be explicit or override a
+default (for example, "tag a new minor release"):
+
+```
+Cut a new release of agentlocks. Bump the PATCH version (or tell me if a minor/major is warranted).
+Follow RELEASING.md. Steps:
+
+1. Version: read the current root package.json version, bump it -> X.Y.Z.
+2. CHANGELOG.md: if there is an "## Unreleased" section, rename it to "## X.Y.Z"; otherwise add a new
+   "## X.Y.Z" section at the top and write entries summarizing changes since the last tag
+   (git log $(git describe --tags --abbrev=0)..HEAD).
+3. Bump ONLY the root package.json "version" to X.Y.Z. Do NOT touch the npm/*/package.json files and
+   do NOT add optionalDependencies; the release workflow stamps those at publish time.
+4. Run `bun run check`; stop and report if it is not green.
+5. Commit "release: X.Y.Z", push main, then tag vX.Y.Z and push the tag.
+6. STOP. Do not approve the deployment. Give me the Actions run URL so I can approve the `release`
+   gate myself.
+7. After I approve, watch the run; confirm every job is green and that agentlocks@X.Y.Z resolves on
+   npm. If a step fails AFTER publishing, re-run the failed job (publishes are idempotent); never
+   re-cut the same version, since npm versions are immutable.
+```
+
 ## How publishing is authenticated (no tokens)
 
 Publishing uses **npm OIDC trusted publishing**. Each of the five packages has a trusted publisher

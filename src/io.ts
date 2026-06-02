@@ -59,9 +59,9 @@ export async function writeFileAtomic(
   // Same directory as the target so the rename stays on one filesystem (never EXDEV). The random
   // suffix prevents collisions between two writers in the same process+millisecond.
   const temp = `${targetPath}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`;
-  await fs.writeFile(temp, contents, "utf8");
 
   try {
+    await fs.writeFile(temp, contents, "utf8");
     for (let attempt = 1; ; attempt++) {
       try {
         await rename(temp, targetPath);

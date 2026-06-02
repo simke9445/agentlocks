@@ -12,9 +12,10 @@ contract change in place with no migration layer.
   standard ARM64 Linux now resolves a prebuilt binary. The target set grows from four to seven
   platform packages.
 - **Windows-safe lock core.** The atomic rename-replace that writes lock records now tolerates
-  the Windows `EPERM` that `fs.rename` raises over an existing file (POSIX silently replaces it);
-  the replace is retried with an unlink-then-rename fallback to stay correct under concurrent
-  handle contention. A `windows-unit` CI job (`bun test` on `windows-latest`) gates both the
+  the transient `EPERM`/`EACCES`/`EBUSY` that `fs.rename` can raise over an existing file on
+  Windows when a concurrent reader or scanner holds a handle (POSIX silently replaces it); the
+  rename is retried with bounded backoff to stay correct under that contention. A `windows-unit`
+  CI job (`bun test` on `windows-latest`) gates both the
   release pipeline and pull-request merges, so Windows-specific lock behavior cannot regress
   between releases.
 - **Five-job, every-target-proven-before-`latest` release pipeline.** The release workflow is

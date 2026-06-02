@@ -1,172 +1,129 @@
 # Releasing agentlocks
 
-This is the maintainer runbook for cutting a release to npm. `agentlocks` ships as a thin
-main package plus four per-platform binary packages, so the publish has an ordering constraint
-the rest of this doc exists to get right.
+`agentlocks` ships as a thin main package plus four per-platform binary packages. Releases are
+**automated**: pushing a `vX.Y.Z` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds the binaries and publishes all five packages to npm via OIDC trusted publishing — no
+tokens, no OTP.
 
 ## Distribution model
 
-The CLI runtime needs Bun (it `import()`s the user's `agentlocks.config.ts`, and only a Bun
-runtime transpiles `.ts` at import). To make `npm i -g agentlocks` work on a machine with no Bun,
-the package ships compiled, Bun-embedded binaries the Biome way:
+The CLI runtime needs Bun (it `import()`s the user's `agentlocks.config.ts`, and only a Bun runtime
+transpiles `.ts` at import). To make `npm i -g agentlocks` work on a machine with no Bun, the package
+ships compiled, Bun-embedded binaries the Biome way:
 
-- `bin/agentlocks.mjs` is a Node launcher. It resolves the prebuilt binary for the current
-  platform (`agentlocks-<platform>-<arch>`) and execs it. With no prebuilt binary (an unsupported
-  platform, or a `npm link` dev checkout) it falls back to running the TypeScript entry under Bun.
+- `bin/agentlocks.mjs` is a Node launcher. It resolves the prebuilt binary for the current platform
+  (`agentlocks-<platform>-<arch>`) and execs it. With no prebuilt binary (an unsupported platform, or
+  a `npm link` dev checkout) it falls back to running the TypeScript entry under Bun.
 - The four `agentlocks-<platform>` packages each carry one compiled binary and an `os`/`cpu`/`libc`
   gate, so npm installs only the one matching the user's machine.
-- The main package lists those four as `optionalDependencies`, so a platform with no published
-  binary still installs (and uses the Bun fallback) instead of failing the whole install.
+- The main package lists those four as `optionalDependencies`, so a platform with no published binary
+  still installs (and uses the Bun fallback) instead of failing the whole install.
 
 Supported binary targets: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`. Windows and
 linux-musl have no prebuilt binary yet and use the Bun fallback.
 
-## Why the platform packages publish first
+## Cutting a release
 
-`optionalDependencies` is wired in **at release time, not committed between releases**. Declaring a
-dependency on a version that is not yet on npm breaks `bun install --frozen-lockfile` (and therefore
-CI) for everyone, because the lockfile cannot resolve. So the in-repo `package.json` has no
-`optionalDependencies`; they are added during the publish, after the platform packages exist on npm,
-and committed together with the updated `bun.lock` so the pushed tree resolves cleanly.
+1. Update `CHANGELOG.md` with the entry for the new version.
+2. Bump **only** the root `package.json` `version` to `X.Y.Z`. The workflow stamps the four
+   `npm/*/package.json` versions from the tag, so you don't touch them.
+3. Commit to `main` and push.
+4. Tag and push the tag — this is the trigger:
+   ```bash
+   git tag -a vX.Y.Z -m "Release X.Y.Z"
+   git push origin main
+   git push origin vX.Y.Z
+   ```
+5. The run pauses on the `release` environment for approval. Approve it from the Actions run page (or
+   the repo's **Settings → Environments → release**). The workflow then verifies, builds the four
+   binaries, publishes the platform packages, wires `optionalDependencies` into the main package,
+   publishes it, creates the GitHub Release with the binaries attached, and runs a clean-room install
+   check on Linux + macOS.
 
-The order below is the whole point: **publish the four platform packages, then wire and publish the
-main package.**
+The `verify` job is the real gate: green means `npm i -g agentlocks@X.Y.Z` works on a machine with no
+Bun.
 
-## Pre-flight
+## How publishing is authenticated (no tokens)
 
-```bash
-git switch main                       # release from main (or a dedicated release branch)
-bun run check                         # 138+ pass, typecheck + lint clean — do not release on red
-npm whoami                            # confirm you are logged in to the right npm account
-```
+Publishing uses **npm OIDC trusted publishing**. Each of the five packages has a trusted publisher
+configured on npmjs.com (package → **Settings → Trusted Publisher → GitHub Actions**) pointing at
+`simke9445/agentlocks`, workflow `release.yml`, environment `release`. The workflow declares
+`permissions: id-token: write`; npm mints the publish credential per-run and generates provenance
+automatically. There is no npm token in the repo or in GitHub secrets, and nothing to rotate.
 
-Confirm all five `package.json` files already carry the target version (the bump is committed
-ahead of the publish):
+Two things keep this working:
 
-```bash
-grep '"version"' package.json npm/*/package.json
-# main + the four platform packages must all read the same X.Y.Z
-```
+- **Don't rename the workflow file or the repo** without updating all five trusted-publisher configs
+  to match — otherwise npm rejects the publish.
+- The `release` GitHub Environment has **required reviewers**, which is what makes a tag push pause
+  for one-click approval before anything publishes.
 
-Confirm `CHANGELOG.md` has the entry for this version.
+### Adding a new platform package later
 
-## 1. Build the binaries
+A brand-new package name (e.g. `agentlocks-win32-x64`) can't use trusted publishing for its **first**
+publish — npm only lets you configure a trusted publisher on a package that already exists. Bootstrap
+it once with a manual token/OTP publish (or `npx setup-npm-trusted-publish <name>`), then add its
+trusted-publisher config and let the workflow take over for every release after.
 
-```bash
-bun run build:binaries                # compiles all four targets into npm/<platform>/bin/
-file npm/*/bin/agentlocks             # sanity-check each arch (Mach-O arm64/x86_64, ELF aarch64/x86-64)
-./npm/$(uname -m | sed 's/x86_64/darwin-x64/;s/arm64/darwin-arm64/')/bin/agentlocks --version
-```
+## Why optionalDependencies aren't committed
 
-The binaries live under `npm/*/bin/`, which is gitignored. They are build artifacts, rebuilt fresh
-here and shipped by `npm publish` from each platform directory (each platform package's
-`files: ["bin/"]`). They are never committed.
+The root `package.json` in the repo has **no** `optionalDependencies`. The release workflow injects
+them right before it publishes the main package, after the platform packages are live (and discards
+the edit — they're never committed).
 
-## 2. Publish the four platform packages
+This is deliberate. Declaring a dependency on a version that isn't on npm yet breaks
+`bun install --frozen-lockfile` for everyone, because the lockfile can't resolve. Committing them
+would force a chicken-and-egg lockfile regeneration every release. Injecting them at publish time
+keeps a plain checkout always resolvable, while the published main tarball still carries the correct
+platform deps for end users.
 
-```bash
-for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
-  ( cd "npm/$d" && npm publish --access public )
-done
-```
+## Break-glass: manual publish
 
-If your account has 2FA-on-publish, npm asks for a one-time password each publish. One fresh code
-usually covers the whole burst, because npm caches the validated session: pass `--otp=<code>` on the
-first publish and the rest ride it (add a fresh `--otp` to any that still report `EOTP`). After the
-last publish, give npm about 30 seconds to propagate the new versions before the next step.
+Use this only if CI is down. It reproduces what the workflow does, from your machine — including the
+OTP prompts that automation exists to avoid.
 
-## 3. Wire optionalDependencies into the main package and refresh the lockfile
+1. From a green `main` already bumped to the target version:
+   ```bash
+   npm whoami            # confirm the right npm account
+   bun run check         # do not release on red
+   bun run build:binaries
+   ```
+2. Publish the four platform packages **first**, stamping the version:
+   ```bash
+   for d in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+     ( cd "npm/$d" && npm pkg set "version=X.Y.Z" && npm publish --access public )
+   done
+   ```
+   With 2FA-on-publish, one fresh OTP usually covers the burst (npm caches the session); add
+   `--otp=<code>` to the first, and to any that still report `EOTP`.
+3. Inject `optionalDependencies`, publish main, then discard the local edit:
+   ```bash
+   npm pkg set \
+     optionalDependencies.agentlocks-darwin-arm64=X.Y.Z \
+     optionalDependencies.agentlocks-darwin-x64=X.Y.Z \
+     optionalDependencies.agentlocks-linux-x64=X.Y.Z \
+     optionalDependencies.agentlocks-linux-arm64=X.Y.Z
+   npm publish --access public
+   git checkout -- package.json   # optionalDependencies are never committed
+   ```
+4. Verify on a clean machine with no Bun:
+   ```bash
+   docker run --rm node:18-slim bash -lc \
+     'npm i -g agentlocks@X.Y.Z && agentlocks --version && agentlocks --help | head'
+   ```
 
-Add the four platform packages to `package.json` (`npm pkg set` edits it without hand-editing JSON):
+Published versions are immutable: if a publish fails midway, you cannot re-publish the same version —
+bump to the next patch and re-cut.
 
-```bash
-npm pkg set \
-  optionalDependencies.agentlocks-darwin-arm64=X.Y.Z \
-  optionalDependencies.agentlocks-darwin-x64=X.Y.Z \
-  optionalDependencies.agentlocks-linux-x64=X.Y.Z \
-  optionalDependencies.agentlocks-linux-arm64=X.Y.Z
-```
+## Troubleshooting the automated release
 
-The lockfile now needs resolved entries for those packages, but **do not run `bun install` on the
-host**: the host enforces a 7-day package `min-release-age` (a supply-chain defense), so it refuses
-the packages you published minutes ago and would write an incomplete lockfile. Generate the complete
-`bun.lock` inside a container that has no age rule, seeded with the previous lockfile so only the four
-new entries change, and bring back only the lockfile (`oven/bun` tag = the `packageManager` version in
-`package.json`):
-
-```bash
-mkdir -p /tmp/lockgen
-cp package.json /tmp/lockgen/package.json        # new package.json (with optionalDependencies)
-git show HEAD:bun.lock > /tmp/lockgen/bun.lock   # previous lockfile (without them)
-docker run --rm -v /tmp/lockgen:/in:ro oven/bun:1.3.13 bash -c '
-  set -e; mkdir -p /w && cd /w
-  cp /in/package.json .; cp /in/bun.lock .
-  bun install >/dev/null 2>&1
-  cat bun.lock
-' > bun.lock
-```
-
-Verify, still in a container, that frozen-install is consistent (this is what CI runs) and the
-published binary executes:
-
-```bash
-mkdir -p /tmp/lockverify && cp package.json bun.lock /tmp/lockverify/
-docker run --rm -v /tmp/lockverify:/in:ro oven/bun:1.3.13 bash -c '
-  set -e; mkdir -p /w && cd /w; cp /in/package.json .; cp /in/bun.lock .
-  bun install --frozen-lockfile
-  node_modules/agentlocks-linux-*/bin/agentlocks --version
-'
-```
-
-Then commit the wiring:
-
-```bash
-git add package.json bun.lock
-git commit -m "release: wire optionalDependencies for X.Y.Z"
-```
-
-Never weaken the host's `min-release-age` rule to install your own fresh release. The container is
-isolated, so installing a sub-7-day package there is safe; only the inert lockfile returns to the host.
-
-## 4. Publish the main package
-
-```bash
-npm publish --access public           # publishConfig.access is already public
-```
-
-## 5. Verify on a clean machine with no Bun
-
-This is the real gate for the whole install story. Run it in a fresh container: it has no Bun (so a
-green result proves the prebuilt binary, not a stray system Bun, did the work) and no `min-release-age`
-rule (so it can install the release you published minutes ago, which the host refuses for 7 days):
-
-```bash
-docker run --rm node:18-slim bash -lc \
-  'npm i -g agentlocks@X.Y.Z && command -v bun || echo "no bun present"; agentlocks --version && agentlocks --help | head'
-```
-
-Expect: install succeeds, `bun` is absent, `agentlocks --version` prints `X.Y.Z`, help renders. That
-exercises the `linux-x64` binary through the Node launcher. For full coverage repeat on
-`arm64v8/node:18-slim` (linux-arm64) and a real macOS box (darwin).
-
-## 6. Tag and push
-
-```bash
-git tag -a vX.Y.Z -m "Release X.Y.Z"
-git push origin main
-git push origin vX.Y.Z
-```
-
-If you cut the release on a separate branch instead of `main`, merge it into `main` now so the
-released tree, including the committed `optionalDependencies` and lockfile, lands on the default branch.
-
-## If something goes wrong
-
-- **A platform publish fails midway.** The already-published platform packages are immutable at
-  that version; you cannot republish the same version. If you must re-cut, bump to the next patch
-  and run the whole sequence again.
-- **`bun install` in step 3 cannot resolve a platform package.** The index has not propagated yet,
-  or that package failed to publish in step 2. Re-check `npm view agentlocks-<platform> version`,
-  wait, and retry.
-- **Clean-machine install pulls no binary.** Confirm the platform package's `os`/`cpu`/`libc` gate
-  matches the target, and that the version in `optionalDependencies` matches what you published.
+- **Publish step fails with an auth/permission error.** The trusted-publisher config doesn't match
+  the run: check org/user (`simke9445`), repo (`agentlocks`), workflow filename (`release.yml`), and
+  environment (`release`) on the failing package. The workflow already upgrades npm to ≥ 11.5.1.
+- **First publish auth error mentioning a token.** `actions/setup-node` writes an empty
+  `_authToken=` line into `.npmrc` that can shadow OIDC. Remove the `registry-url:` line from the
+  Set up Node step and re-run.
+- **The run doesn't pause for approval.** The `release` environment lost its required reviewers —
+  re-add them in **Settings → Environments → release**.
+- **`verify` job can't find the new version.** Registry propagation lag; the job already retries six
+  times. If it still fails, confirm the platform publish step actually succeeded.

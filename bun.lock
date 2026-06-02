@@ -12,12 +12,6 @@
         "@types/bun": "1.3.13",
         "typescript": "6.0.3",
       },
-      "optionalDependencies": {
-        "agentlocks-darwin-arm64": "0.6.0",
-        "agentlocks-darwin-x64": "0.6.0",
-        "agentlocks-linux-arm64": "0.6.0",
-        "agentlocks-linux-x64": "0.6.0",
-      },
     },
   },
   "packages": {
@@ -42,14 +36,6 @@
     "@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
 
     "@types/node": ["@types/node@25.9.1", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg=="],
-
-    "agentlocks-darwin-arm64": ["agentlocks-darwin-arm64@0.6.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-PZbAvRXARZbM3vFPhVN/dP5Fbrdg9Fg5JlLqmz5L48wBMF8+QjapdmpdhmlGY5Ire0XAHGxSuK1VkGYXkcmO+w=="],
-
-    "agentlocks-darwin-x64": ["agentlocks-darwin-x64@0.6.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-sO46FfijhfFT0dBo6II0ISHW9gB06et1RsgPpsQeLYpW/+v2x0CZtmTDQhLPtE25y8jaPmwOb2DJ8RoRxSrGPg=="],
-
-    "agentlocks-linux-arm64": ["agentlocks-linux-arm64@0.6.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-QiG90Kozul+pDf1VvjkmZXGK9LnVW+wYzi6vICFZFFIeaZARoufjHy77Zbak6GW0f1ewaK46J7fBAlaxfiWOsA=="],
-
-    "agentlocks-linux-x64": ["agentlocks-linux-x64@0.6.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Tgcx1zobzTbqNZgAG0+CQs3iE9Ya2MXqWKI+M3gzE9/P5EbXoZuAPyzIj/Npu3VdbEPZVX7LXk/N3NH/7uFFxg=="],
 
     "bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
 

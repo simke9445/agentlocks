@@ -1,8 +1,9 @@
 # Bundle-size reduction — recommendation + status (PROVEN on CI)
 
 Goal: shrink the installed `agentlocks` footprint (60–112 MB/platform, ~100% embedded
-Bun runtime) to the smallest defensible size. Graded research loop; PROVEN PoC. Implemented and
-heading to a tagged `0.8.0` release (the original "no publish/tag" rail was lifted by the user).
+Bun runtime) to the smallest defensible size. Graded research loop; PROVEN PoC. Implemented,
+codex-reviewed, and **RELEASED as `0.8.0`** — live on npm `latest` (the original "no publish/tag"
+rail was lifted by the user).
 
 ## Recommendation: **Option 1 — drop the embedded-Bun binaries, ship one Node bundle. CLI-only (no library API).**
 
@@ -67,8 +68,24 @@ reverted) to pack → prove → publish the single tarball; the binary scaffoldi
 E403 / trusted-publisher saga is moot. OIDC trusted publishing for the single `agentlocks` package is
 confirmed working (0.7.0 published through the same `flip` path).
 
-## Next
-1. Prove the refactor green on real CI (`ci.yml` dispatch on the branch) — the reusable conformance must pass.
-2. Loop a **codex review** against the release-readiness rubric until zero blocking findings.
-3. Merge to `main` (fast-forward, all commits preserved), tag `v0.8.0`, push; monitor `release.yml`
-   to the `release` approval gate (the maintainer approves — never self-approved).
+## DONE — released 2026-06-03 (all "Next" items complete, verified on real signal)
+1. **Refactor proven green on real CI** — the reusable `conformance.yml` (3 OS × 3 node + Alpine/musl)
+   passed on `ci.yml` and again on the tag's `release.yml` (run `26892485562`, all 14 jobs green).
+2. **codex review converged** — scored /100 rubric, two consecutive rounds **98 → 99/100, zero
+   HIGH/MED/LOW**, after 3 fix rounds closed 10 findings (terminal-confirm hard-fail, stale binary-era
+   comments, CLI-only docs, release-pack Node pin, npm README image URL).
+3. **Merged + tagged + published** — `main` fast-forwarded `fe55aa6 → 2fb6917` (8 commits, no squash),
+   annotated tag `v0.8.0` pushed; `release.yml` ran pack ∥ windows-unit → conformance + musl → waited
+   at the `release` gate → **the maintainer approved** (the agent never self-approved) → `flip`
+   published via OIDC + `--provenance`. Post-merge the `shrink-bundle-size` branch was deleted
+   (local + remote); its commits live on `main` and under tag `v0.8.0`.
+
+**Published outcome (real signal):**
+
+| Check | Result |
+| --- | --- |
+| npm `dist-tags.latest` | **0.8.0** (flipped from 0.7.0) |
+| Tarball | **5 files / 59,739 bytes**; `dist/agentlocks.mjs` 156 KB, shebang `#!/usr/bin/env node` |
+| Provenance | npm publish attestation v0.1 + **SLSA provenance v1** present |
+| GitHub Release | `v0.8.0` (not draft/prerelease), `main.tgz` 59,739 bytes — byte-identical to the npm tarball |
+| Terminal gate | unpinned `npm i -g agentlocks` hard-verified to resolve 0.8.0 |

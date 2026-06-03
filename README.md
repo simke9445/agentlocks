@@ -3,7 +3,7 @@
 **Advisory file locks that let multiple AI coding agents share one Git worktree without clobbering each other.**
 
 <p align="center">
-  <img src="./assets/agentlocks-heading.png" alt="Agentlocks" width="960">
+  <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-heading.png" alt="Agentlocks" width="960">
 </p>
 
 <p align="center">

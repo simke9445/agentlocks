@@ -1,5 +1,5 @@
 // check-monotonic.mjs - the monotonic-version guard (equal-version allowed only as an idempotent
-// recovery). Verbatim extraction of the node -e block at release.yml lines 192-206.
+// recovery). Extracted from the monotonic-guard step of release.yml's pack job (run via `node`).
 //
 // Below max: fail. Equal max: pass ONLY when the published main bytes match this run (an idempotent
 // recovery, which the flip then no-ops); otherwise foreign/stale -> fail. Strictly greater / first

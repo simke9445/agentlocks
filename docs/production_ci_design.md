@@ -110,7 +110,7 @@ flip          (OIDC; release)   needs: [conformance, windows-unit, pack]; enviro
    |                            npm publish main.tgz -> latest --provenance (the exact proven bytes;
    |                            idempotent no-op on a byte-matching pre-existing agentlocks@X,
    |                            hard-fail on a mismatch); terminal confirmation that an unpinned
-   |                            `npm i -g agentlocks` resolves + runs X (warn on propagation lag).
+   |                            `npm i -g agentlocks` resolves + runs X (retries lag, then HARD-FAILS).
    |
 release-notes (contents:write)  needs: flip. Create/update the GitHub Release (idempotent), attach
                                 main.tgz. Separate job so a re-run reaches it even when flip no-ops.
@@ -190,10 +190,14 @@ mounting the workspace. `apk add --no-cache git` is added because the extended s
   origin/main`).
 - **Guard the tag shape.** The `v*` trigger also matches `v1.2.3-rc.1`; fail any `$VERSION` not
   matching `^[0-9]+\.[0-9]+\.[0-9]+$`, and assert `tag == package.json`, before any publish.
-- **Propagation is eventually consistent.** The post-flip terminal confirmation, with its own retry,
-  installs **unpinned** (`npm i -g agentlocks --prefer-online`) to prove `latest` itself now resolves
-  the new version, distinguishing a wrong-version resolution (hard fail) from a still-propagating
-  install (warn, do not roll back); it is post-flip, so it surfaces rather than gates.
+- **Propagation is eventually consistent.** The post-flip terminal confirmation, with its own retry
+  (8 × 15s), installs **unpinned** (`npm i -g agentlocks --prefer-online`) to prove `latest` itself
+  now resolves + runs the new version. Genuine propagation lag is absorbed by the retries; if an
+  unpinned install still does not resolve/run the new version after them — a wrong-version resolution
+  or a persistent install failure — the step emits `::error::` and **hard-fails** (exit 1). The flip
+  already confirmed the published bytes, so a non-resolving `latest` here is a real problem, not
+  benign lag. The irreversible publish is **not** rolled back; the red run is the maintainer's signal
+  to investigate the dist-tag.
 
 ### 4.5 Concurrency
 

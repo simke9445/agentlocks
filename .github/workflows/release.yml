@@ -2,24 +2,28 @@ name: Release
 
 # Bundle release pipeline (see BUNDLE_SIZE_REDUCTION.md + docs/production_ci_design.md). agentlocks
 # ships ONE ~157 KB Node bundle (dist/agentlocks.mjs) run under the user's Node, NOT 7 embedded-Bun
-# per-platform binaries. So the pipeline is: build + pack ONE tarball -> verify it installs and runs
-# on every target OS/libc and on the minimum supported Node -> ONE OIDC publish that flips `latest`.
-# The verify matrix is a real `needs:` barrier in front of the flip, so a release whose tarball fails
-# to install-and-run on any target never becomes the `latest` that `npm i -g agentlocks` resolves.
+# per-platform binaries. So the pipeline is: build + pack ONE tarball -> prove it installs and runs
+# on every target OS/libc/Node -> ONE OIDC publish that flips `latest`. pack and the white-box
+# windows-unit gate run in PARALLEL; the conformance matrix and windows-unit are both real `needs:`
+# barriers in front of the flip, so a release whose tarball fails to install-and-run (or reports the
+# wrong version) on any target never becomes the `latest` that `npm i -g agentlocks` resolves.
 #
-# Windows: there is no .exe. `npm i -g` writes a cmd-shim (agentlocks.cmd) that runs
-# `node ...\dist\agentlocks.mjs %*`; the win32 verify legs prove that shim end to end (extended
-# conformance + the .ts-config contract) on BOTH the min-node floor and the release pin. windows-unit
-# (the white-box gate) additionally runs the full lock suite + the same install proof on Windows.
+# Conformance is the SAME reusable workflow ci.yml runs on every push (.github/workflows/conformance.yml),
+# called here with assert_version set: if it is green in CI, the release re-runs an identical proof and
+# additionally asserts the tagged version. Windows: there is no .exe. `npm i -g` writes a cmd-shim
+# (agentlocks.cmd) that runs `node ...\dist\agentlocks.mjs %*`; the win32 conformance legs prove that
+# shim end to end (extended conformance + the .ts-config contract) across the node fan-out. windows-unit
+# (the white-box gate) runs the full lock suite on Windows.
 #
-# Only the flip job holds the publish credential (id-token); pack/verify never do. Every mutable input
+# Only the flip job holds the publish credential (id-token); pack/conformance never do. Every mutable input
 # is digest-pinned and aged past the 7-day supply-chain window:
 #   actions/checkout      v6.0.2  (2026-01-09)
 #   oven-sh/setup-bun     v2.2.0  (2026-03-14)
 #   actions/setup-node    v6.4.0  (2026-04-20)
 #   actions/upload-artifact   v7.0.1  (2026-04-10)
 #   actions/download-artifact v8.0.1  (2026-03-11)
-#   npm 11.15.0 (>= the 11.5.1 OIDC floor); node 24.16.0; node:22.22.3-alpine3.23 (digest-pinned)
+#   npm 11.15.0 (>= the 11.5.1 OIDC floor); node 24.16.0
+# (the conformance matrix's Node floor + the digest-pinned musl image live in conformance.yml).
 
 on:
   push:
@@ -38,15 +42,11 @@ permissions: {}
 env:
   NPM_PIN: "11.15.0"
   NODE_PIN: "24.16.0"
-  # engines.node floor: the first Node with unflagged .ts type-stripping (so the scaffolded
-  # agentlocks.config.ts loads). The verify matrix proves the tarball on this floor, not just the pin.
-  NODE_FLOOR: "22.18.0"
-  MUSL_IMAGE: "node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920"
 
 jobs:
-  # White-box Windows gate: the full lock suite must pass on Windows, and the packed bundle must
-  # install + pass the extended black-box conformance + the .ts-config contract via the npm cmd-shim,
-  # before anything publishes. Shared with ci.yml via the reusable workflow.
+  # White-box Windows gate: the full lock suite must pass on Windows before anything publishes (a
+  # flip barrier). The black-box Windows install proof (npm cmd-shim + extended conformance) is the
+  # conformance job's windows-latest legs. Shared with ci.yml via the reusable workflow.
   windows-unit:
     # A reusable workflow's token can only be downgraded by the caller; grant checkout's contents:read.
     permissions:
@@ -55,9 +55,9 @@ jobs:
 
   # Build + pack the single bundle tarball ONCE; guard the tag; record integrity; run the
   # monotonic-version guard. No id-token here -- this job never publishes (the flip is the only
-  # publish), so the packed bytes are produced without the publish credential in scope.
+  # publish), so the packed bytes are produced without the publish credential in scope. Runs in
+  # PARALLEL with windows-unit (both are flip barriers); neither blocks the other.
   pack:
-    needs: windows-unit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -133,11 +133,11 @@ jobs:
           path: main.tgz
           if-no-files-found: error
           retention-days: 7
-      - name: Upload the verify/flip scripts (verify + flip run them without a checkout)
+      - name: Upload the conformance/flip scripts (consumed without a checkout)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-scripts
-          # verify runs conformance-scenario.mjs + ts-config-smoke.mjs; flip runs dist-integrity.sh.
+          # conformance runs conformance-scenario.mjs + ts-config-smoke.mjs; flip runs dist-integrity.sh.
           # scripts/ is the common root, so download to `scripts` restores the layout these commands
           # expect (`node scripts/...`, `sh scripts/ci/...`).
           path: |
@@ -147,123 +147,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # THE GATE. Install the packed tarball globally (no Bun present) and run the extended conformance
-  # scenario + the .ts-config contract against the INSTALLED bin shim, on every target OS x {min-node
-  # floor, release pin}. No id-token, no checkout: a job that proves the published bytes holds neither
-  # the publish credential nor a repo token (download-artifact uses the runtime token). fail-fast off.
-  #
-  # Arch note: the bundle is pure JS, byte-identical on every CPU arch, so the meaningful axes are OS
-  # (path / spawn / npm-shim behavior), libc (the musl leg below), and Node version -- NOT CPU arch.
-  # macos-latest is arm64 and ubuntu/windows are x64, so both arches do execute the bundle here; a
-  # separate linux-arm64 leg would re-run the identical JS and is intentionally omitted.
-  verify:
+  # THE GATE. Install the packed tarball globally (no Bun) and prove it RUNS -- extended conformance
+  # + the .ts-config contract against the INSTALLED bin shim -- on every target OS x libc x Node,
+  # asserting the tagged version. This is the SAME reusable ci.yml runs on every push, called here
+  # with assert_version set: a real `needs:` barrier in front of the flip, so a release whose tarball
+  # fails to install-and-run (or reports the wrong version) on any target never becomes the `latest`
+  # that `npm i -g agentlocks` resolves. No id-token, no checkout (see conformance.yml).
+  conformance:
     needs: pack
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
     permissions: {}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ["22.18.0", "24.16.0"]
-    steps:
-      - name: Set up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: ${{ matrix.node }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: main-tarball
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ci-scripts
-          path: scripts # conformance-scenario.mjs + ts-config-smoke.mjs land back under scripts/
+    uses: ./.github/workflows/conformance.yml
+    with:
+      assert_version: ${{ needs.pack.outputs.version }}
 
-      # POSIX: `npm i -g --prefix` puts the bin at <prefix>/bin/agentlocks, a symlink whose
-      # `#!/usr/bin/env node` shebang runs the bundle. No Bun on PATH -> proves the pure-Node path.
-      - name: Install + prove the bundle (POSIX)
-        if: runner.os != 'Windows'
-        shell: bash
-        env:
-          VERSION: ${{ needs.pack.outputs.version }}
-        run: |
-          set -euo pipefail
-          PREFIX="$RUNNER_TEMP/al-prefix"
-          mkdir -p "$PREFIX"
-          npm i -g --prefix "$PREFIX" "$PWD/main.tgz"
-          BIN="$PREFIX/bin/agentlocks"
-          test -x "$BIN" || { echo "bin missing at $BIN"; ls -la "$PREFIX/bin" || true; exit 1; }
-          node --version
-          GOT="$("$BIN" --version)"
-          [ "$GOT" = "$VERSION" ] || { echo "::error::--version $GOT != $VERSION"; exit 1; }
-          node scripts/conformance-scenario.mjs "$BIN" extended
-          node scripts/ts-config-smoke.mjs "$BIN"
-
-      # Windows: `npm i -g --prefix` writes a cmd-shim at <prefix>\agentlocks.cmd that runs
-      # `node ...\dist\agentlocks.mjs %*`. The conformance harness detects the non-.exe invocation and
-      # spawns it via a shell. This is the win32 release gate: the bundle served the npm way on Windows.
-      - name: Install + prove the bundle (Windows cmd-shim + .mjs exec)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.pack.outputs.version }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $prefix = Join-Path $env:RUNNER_TEMP "al-prefix"
-          New-Item -ItemType Directory -Force -Path $prefix | Out-Null
-          $tgz = (Resolve-Path main.tgz).Path
-          npm i -g --prefix $prefix $tgz
-          if ($LASTEXITCODE -ne 0) { throw "npm install failed ($LASTEXITCODE)" }
-          $bin = Join-Path $prefix "agentlocks.cmd"
-          if (-not (Test-Path $bin)) { Get-ChildItem $prefix; throw "bin missing at $bin" }
-          node --version
-          $got = (& $bin --version | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0) { throw "agentlocks --version failed ($LASTEXITCODE)" }
-          if ($got -ne $env:VERSION) { throw "--version '$got' != '$($env:VERSION)'" }
-          node scripts/conformance-scenario.mjs "$bin" extended
-          if ($LASTEXITCODE -ne 0) { throw "conformance failed ($LASTEXITCODE)" }
-          node scripts/ts-config-smoke.mjs "$bin"
-          if ($LASTEXITCODE -ne 0) { throw "ts-config-smoke failed ($LASTEXITCODE)" }
-
-  # Alpine/musl leg. JS actions cannot run in an Alpine container on arm64, so the proof runs via
-  # docker on the glibc host with the workspace mounted (same pattern as bundle-conformance.yml). The
-  # image's Node 22.22.3 satisfies engines.node >=22.18; git is added for the conformance commit step.
-  musl-verify:
-    needs: pack
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions: {}
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: main-tarball
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ci-scripts
-          path: scripts
-      - name: Install + prove the bundle (musl)
-        env:
-          VERSION: ${{ needs.pack.outputs.version }}
-        run: |
-          docker run --rm -v "$PWD:/work" -w /work -e VERSION \
-            "$MUSL_IMAGE" \
-            sh -euc '
-              apk add --no-cache git >/dev/null
-              prefix=/tmp/al-prefix
-              mkdir -p "$prefix"
-              npm i -g --prefix "$prefix" /work/main.tgz
-              bin="$prefix/bin/agentlocks"
-              node --version
-              got="$("$bin" --version)"
-              [ "$got" = "$VERSION" ] || { echo "::error::--version $got != $VERSION"; exit 1; }
-              node scripts/conformance-scenario.mjs "$bin" extended
-              node scripts/ts-config-smoke.mjs "$bin"
-            '
-
-  # The only irreversible, user-visible step, behind the one human approval (environment: release). The
-  # approver sees the full green verify matrix first. Publishes the SAME main.tgz the matrix installed.
+  # The only irreversible, user-visible step, behind the one human approval (environment: release).
+  # The approver sees the full green conformance matrix + windows-unit first. Publishes the SAME
+  # main.tgz the matrix installed.
   flip:
-    needs: [verify, musl-verify, pack]
+    needs: [conformance, windows-unit, pack]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release

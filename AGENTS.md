@@ -87,7 +87,7 @@ bun run --silent agentlocks -- git end <git_lock_id> --release-lock <lock_id>
   behavior changes.
 - Keep tests focused on file-backed lock semantics, CLI parsing/rendering, config loading, install
   idempotency, and generated instruction text.
-- Keep docs aligned with the public CLI and the library API.
+- Keep docs aligned with the public CLI surface (agentlocks is a CLI, not a library — no exported API).
 
 ## Releasing
 

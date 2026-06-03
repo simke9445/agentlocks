@@ -1,0 +1,143 @@
+name: conformance
+
+# Reusable BLACK-BOX conformance: install a freshly packed Node bundle the npm way (no Bun present)
+# and prove it RUNS on every target -- OS x libc x Node -- against the INSTALLED bin shim. Shared by
+# ci.yml (PR / push gate) and release.yml (publish gate) via `uses:`, so both pipelines prove the
+# exact same bytes the exact same way: if conformance is green in CI, the release re-runs an identical
+# proof. The single ~157 KB dist/agentlocks.mjs is pure JS (byte-identical across CPU arch), so the
+# meaningful axes are OS (path / spawn / npm-shim), libc (the musl job), and Node minor (unflagged
+# .ts type-stripping for the scaffolded agentlocks.config.ts) -- NOT CPU arch. macos-latest is arm64
+# and ubuntu/windows are x64, so both arches do execute the bundle; a linux-arm64 leg would re-run
+# identical JS and is omitted.
+#
+# No checkout, no id-token: a job that proves the published bytes holds neither the publish credential
+# nor a repo token (download-artifact uses the runtime token). It consumes two artifacts the caller's
+# pack job uploads: `main-tarball` (main.tgz, the exact bytes a release would publish) and `ci-scripts`
+# (the conformance harness + the .ts-config smoke, restored under scripts/).
+on:
+  workflow_call:
+    inputs:
+      assert_version:
+        description: >-
+          When non-empty, every leg asserts `agentlocks --version` equals it (release proves the
+          packed bytes report the tagged version). Empty (the CI default) only proves the bundle runs.
+        type: string
+        default: ""
+
+permissions: {}
+
+env:
+  # The musl image's Node 22.22.3 satisfies engines.node >=22.18. Digest-pinned + aged past the 7-day
+  # supply-chain window. Reusable-workflow env does not inherit from the caller, so it is declared here.
+  MUSL_IMAGE: "node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920"
+
+jobs:
+  # Native OS x Node fan-out. fail-fast off so one red leg never hides another's result. The node axis
+  # (22.18.0 floor / 22.22.3 mid / 24.16.0 pin) widens type-stripping coverage across 22.x minors --
+  # the riskiest dimension, since unflagged .ts stripping evolves across Node releases.
+  prove:
+    name: prove (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["22.18.0", "22.22.3", "24.16.0"]
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Download tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: main-tarball
+      - name: Download CI scripts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts # conformance-scenario.mjs + ts-config-smoke.mjs land back under scripts/
+
+      # POSIX: `npm i -g --prefix` puts the bin at <prefix>/bin/agentlocks, a symlink whose
+      # `#!/usr/bin/env node` shebang runs the bundle. No Bun on PATH -> proves the pure-Node path.
+      - name: Install + prove the bundle (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          EXPECT: ${{ inputs.assert_version }}
+        run: |
+          set -euo pipefail
+          PREFIX="$RUNNER_TEMP/al-prefix"
+          mkdir -p "$PREFIX"
+          npm i -g --prefix "$PREFIX" "$PWD/main.tgz"
+          BIN="$PREFIX/bin/agentlocks"
+          test -x "$BIN" || { echo "bin missing at $BIN"; ls -la "$PREFIX/bin" || true; exit 1; }
+          node --version
+          GOT="$("$BIN" --version)"
+          if [ -n "$EXPECT" ] && [ "$GOT" != "$EXPECT" ]; then echo "::error::--version $GOT != $EXPECT"; exit 1; fi
+          node scripts/conformance-scenario.mjs "$BIN" extended
+          node scripts/ts-config-smoke.mjs "$BIN"
+
+      # Windows: `npm i -g --prefix` writes a cmd-shim at <prefix>\agentlocks.cmd that runs
+      # `node ...\dist\agentlocks.mjs %*`. The conformance harness detects the non-.exe invocation and
+      # spawns it via a shell. This is the win32 gate: the bundle served the npm way on Windows.
+      - name: Install + prove the bundle (Windows cmd-shim + .mjs exec)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECT: ${{ inputs.assert_version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $prefix = Join-Path $env:RUNNER_TEMP "al-prefix"
+          New-Item -ItemType Directory -Force -Path $prefix | Out-Null
+          $tgz = (Resolve-Path main.tgz).Path
+          npm i -g --prefix $prefix $tgz
+          if ($LASTEXITCODE -ne 0) { throw "npm install failed ($LASTEXITCODE)" }
+          $bin = Join-Path $prefix "agentlocks.cmd"
+          if (-not (Test-Path $bin)) { Get-ChildItem $prefix; throw "bin missing at $bin" }
+          node --version
+          $got = (& $bin --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "agentlocks --version failed ($LASTEXITCODE)" }
+          if ($env:EXPECT -and $got -ne $env:EXPECT) { throw "--version '$got' != '$($env:EXPECT)'" }
+          node scripts/conformance-scenario.mjs "$bin" extended
+          if ($LASTEXITCODE -ne 0) { throw "conformance failed ($LASTEXITCODE)" }
+          node scripts/ts-config-smoke.mjs "$bin"
+          if ($LASTEXITCODE -ne 0) { throw "ts-config-smoke failed ($LASTEXITCODE)" }
+
+  # Alpine/musl leg. JS actions cannot run in an Alpine container on arm64, so the proof runs via
+  # docker on the glibc host with the workspace mounted. git is added for the conformance commit step.
+  musl:
+    name: prove (alpine/musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {}
+    steps:
+      - name: Download tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: main-tarball
+      - name: Download CI scripts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-scripts
+          path: scripts
+      - name: Install + prove the bundle (musl)
+        env:
+          EXPECT: ${{ inputs.assert_version }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e EXPECT \
+            "$MUSL_IMAGE" \
+            sh -euc '
+              apk add --no-cache git >/dev/null
+              prefix=/tmp/al-prefix
+              mkdir -p "$prefix"
+              npm i -g --prefix "$prefix" /work/main.tgz
+              bin="$prefix/bin/agentlocks"
+              node --version
+              got="$("$bin" --version)"
+              if [ -n "$EXPECT" ] && [ "$got" != "$EXPECT" ]; then echo "::error::--version $got != $EXPECT"; exit 1; fi
+              node scripts/conformance-scenario.mjs "$bin" extended
+              node scripts/ts-config-smoke.mjs "$bin"
+            '

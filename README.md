@@ -29,10 +29,10 @@ npm install -g agentlocks      # or: bun install -g agentlocks
 agentlocks --help
 ```
 
-`npm install -g` works with no Bun on the machine: Agentlocks ships a self-contained, prebuilt
-binary for your platform, and a small Node launcher selects it. (Bun is only needed to use the
-library API or to build from source.) Then run `agentlocks init` once inside each repo you want
-to coordinate.
+`npm install -g` works with no Bun on the machine: Agentlocks ships as one small Node bundle that
+runs under your own Node — no per-platform binary, no embedded runtime. It needs Node >= 22.18, the
+first release that loads a TypeScript `agentlocks.config.ts` natively. (Bun is only needed to build
+from source.) Then run `agentlocks init` once inside each repo you want to coordinate.
 
 ## See it in 20 seconds
 
@@ -367,54 +367,10 @@ export default {
 ```
 
 The config is a plain object, validated when Agentlocks loads it (a bad key or wrong type fails with
-an actionable error). For editor autocomplete, add `agentlocks` as a dev dependency and append
-`satisfies AgentlocksConfig` (the type is exported from the package).
+an actionable error).
 
 Config discovery starts at the current working directory, walks up to the nearest `.git`, then
 loads `agentlocks.config.ts` if present. Without a config file, Agentlocks uses the defaults above.
-
-## Library API
-
-The package export is defined in `package.json` as `src/index.ts`. In Bun/TypeScript projects, use
-the package directly:
-
-```ts
-import {
-  FileLockRegistry,
-  defineAgentlocksConfig,
-  executeLockCommand,
-  loadAgentlocksConfig,
-  runInit,
-} from "agentlocks";
-
-const config = defineAgentlocksConfig({
-  lockRoot: ".agentlocks/locks",
-});
-
-await runInit({ root: process.cwd(), check: true });
-
-const result = await executeLockCommand({
-  name: "acquire",
-  paths: ["src/index.ts"],
-  globs: [],
-  reason: "edit library entry",
-  ttlMs: null,
-  agentId: "docs-example",
-  json: true,
-  idOnly: false,
-});
-
-console.log(result.exitCode, result.json);
-
-const registry = new FileLockRegistry({ cwd: process.cwd() });
-console.log(registry.identify("docs-example").owner?.agentId);
-
-await loadAgentlocksConfig();
-console.log(config.lockRoot);
-```
-
-Other exported helpers include config resolution, init rendering, resource matching, resource
-normalization, session detection, liveness probes, lock result rendering, and lock types.
 
 ## Architecture
 

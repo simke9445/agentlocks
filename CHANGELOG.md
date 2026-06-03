@@ -3,15 +3,29 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
-## Unreleased
+## 0.8.0
 
-### Added
+### Changed
 
-- **Windows (`win32-x64`) is now a shipped binary target.** `npm i -g agentlocks` on Windows x64
-  resolves a prebuilt binary instead of falling back to Bun, so the full set is seven platform
-  packages. The npm package was bootstrapped (its first publish was blocked by a registry-side
-  spam-detection false positive, since cleared by npm support), trusted publishing was configured,
-  and the release pipeline now publishes and verifies it on `windows-latest` like every other target.
+- **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
+  `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
+  installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages
+  pinned through `optionalDependencies`. It now installs a single ~157 KB `dist/agentlocks.mjs`
+  (`bun build --target=node --minify`) that runs under the user's own Node: a ~5 file / ~59 kB
+  tarball, a >99% smaller install with no per-platform binary download. The bin shim is the standard
+  npm one (a `#!/usr/bin/env node` symlink on POSIX, an `agentlocks.cmd` cmd-shim on Windows), so
+  Windows is a first-class target served the npm way with no `.exe`. The seven platform packages, the
+  `optionalDependencies` fan-out, and the Bun-fallback launcher (`bin/agentlocks.mjs`) are gone.
+- **`engines.node` is now `>=22.18`** (was `>=18`). Node 22.18 is the first release with unflagged
+  `.ts` type-stripping, which is how the bundle loads a scaffolded `agentlocks.config.ts` without Bun
+  on the machine. The release/CI conformance matrix proves the bundle on this floor (22.18.0), a 22.x
+  mid (22.22.3), and the release pin (24.16.0), across Linux (glibc + musl), macOS, and Windows.
+
+### Removed
+
+- **The library API and its type declarations.** agentlocks is a CLI, not a library; the package no
+  longer publishes `exports` or `.d.ts` files. Import the CLI's behavior by invoking `agentlocks`,
+  not by importing from the package.
 
 ## 0.7.0
 

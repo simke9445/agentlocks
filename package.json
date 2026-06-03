@@ -34,27 +34,23 @@
     "access": "public"
   },
   "bin": {
-    "agentlocks": "bin/agentlocks.mjs"
+    "agentlocks": "dist/agentlocks.mjs"
   },
   "files": [
-    "assets/",
-    "bin/",
-    "src/",
+    "dist/",
     "README.md",
     "CHANGELOG.md",
-    "CONTRIBUTING.md",
     "LICENSE"
   ],
-  "exports": {
-    ".": "./src/index.ts"
-  },
   "scripts": {
-    "build": "bun run typecheck",
+    "build": "bun run build:bundle",
+    "build:bundle": "bun scripts/build-bundle.mjs",
     "build:binaries": "bun scripts/build-binaries.mjs",
     "smoke": "bun scripts/smoke-install.mjs",
-    "agentlocks": "bun run src/index.ts",
-    "start": "bun run src/index.ts",
-    "doctor": "bun run src/index.ts doctor",
+    "prepack": "bun run build",
+    "agentlocks": "bun run bin/agentlocks.ts",
+    "start": "bun run bin/agentlocks.ts",
+    "doctor": "bun run bin/agentlocks.ts doctor",
     "format": "biome format --write .",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
@@ -70,6 +66,6 @@
     "typescript": "6.0.3"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18"
   }
 }

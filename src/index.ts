@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 export { main } from "./cli/index";
 export {
   type AgentlocksConfig,

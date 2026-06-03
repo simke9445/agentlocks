@@ -123,9 +123,10 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_PIN }}
-          # No registry-url: it writes an empty _authToken= into .npmrc that shadows OIDC trusted
-          # publishing (npm then tries token auth and gets 404/permission). npm defaults to the npmjs
-          # registry, and OIDC (id-token: write + a configured trusted publisher) authenticates the publish.
+          # registry-url sets the registry; with NO NODE_AUTH_TOKEN + id-token: write, npm >= 11.5.1
+          # publishes via OIDC trusted publishing (requires a matching trusted publisher on the package).
+          # Removing it does NOT enable OIDC -- npm then has no registry auth and errors ENEEDAUTH.
+          registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; Node bundles an older npm. Pinned, not @latest.
       # No `bun install` here: this OIDC (id-token) job runs only npm/node/git inline scripts, so
       # project dependency lifecycle scripts never execute in the publish-credential context.
@@ -348,9 +349,10 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ env.NODE_PIN }}
-          # No registry-url: it writes an empty _authToken= into .npmrc that shadows OIDC trusted
-          # publishing (npm then tries token auth and gets 404/permission). npm defaults to the npmjs
-          # registry, and OIDC (id-token: write + a configured trusted publisher) authenticates the publish.
+          # registry-url sets the registry; with NO NODE_AUTH_TOKEN + id-token: write, npm >= 11.5.1
+          # publishes via OIDC trusted publishing (requires a matching trusted publisher on the package).
+          # Removing it does NOT enable OIDC -- npm then has no registry auth and errors ENEEDAUTH.
+          registry-url: https://registry.npmjs.org
       - name: Pin npm
         run: npm install -g "npm@${NPM_PIN}" --ignore-scripts
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

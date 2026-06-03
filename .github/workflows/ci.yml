@@ -70,7 +70,7 @@ jobs:
       - name: Install smoke test
         run: bun run smoke
 
-  # Windows port gate (PRODUCTION_CI_DESIGN_V2.md section 4.7 / step 9). White-box: the full lock
+  # Windows port gate (docs/production_ci_design.md section 4.6). White-box: the full lock
   # suite must pass on Windows. Black-box: a freshly built win32 binary must pass the extended
   # conformance scenario (rename-replace, conflict, reclaim, git-index cycle, backslash path).
   # Configure this as a required status check (branch protection) on PRs so the Windows port cannot

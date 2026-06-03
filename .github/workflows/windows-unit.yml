@@ -1,6 +1,6 @@
 name: windows-unit
 
-# White-box Windows gate (PRODUCTION_CI_DESIGN_V2.md section 4.7 / step 9), shared by ci.yml (PR /
+# White-box Windows gate (docs/production_ci_design.md section 4.6), shared by ci.yml (PR /
 # push gate) and release.yml (publish gate) via `uses: ./.github/workflows/windows-unit.yml`. The
 # full lock suite must pass on Windows, and a freshly built win32 binary must pass the extended
 # black-box conformance scenario (rename-replace, conflict, reclaim, git-index cycle, backslash

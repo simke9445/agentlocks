@@ -1,6 +1,6 @@
 name: Release
 
-# V2 pipeline (see PRODUCTION_CI_DESIGN_V2.md): build -> publish-stage -> verify (matrix over
+# Release pipeline (see docs/production_ci_design.md): build -> publish-stage -> verify (matrix over
 # every target) -> flip -> release-notes. The verify matrix is a real `needs:` barrier in front of
 # the flip, so no release in which any platform binary fails to install-and-run on its real OS ever
 # becomes the `latest` that `npm i -g agentlocks` resolves. Stays tokenless: the flip is a plain

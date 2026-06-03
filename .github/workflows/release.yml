@@ -216,14 +216,15 @@ jobs:
             done
             [ "$GOT" = "$OUR_INTEGRITY" ] || { echo "::error::published agentlocks@$VERSION bytes != ours (got=$GOT ours=$OUR_INTEGRITY)"; exit 1; }
           fi
-      - name: Terminal confirmation (post-flip; warns on propagation lag, hard-fails on wrong version)
+      - name: Terminal confirmation (unpinned install must resolve the new version; hard-fails otherwise)
         env:
           VERSION: ${{ needs.pack.outputs.version }}
         run: |
           set -eu
           PREFIX="$(pwd)/.confirm-prefix"; mkdir -p "$PREFIX"; export npm_config_prefix="$PREFIX"
+          GOT=""
           i=1
-          while [ "$i" -le 6 ]; do
+          while [ "$i" -le 8 ]; do
             # Unpinned install: proves `latest` itself now resolves $VERSION (an exact-version install
             # would pass even if latest still pointed at the old release). --prefer-online so a cached
             # old packument cannot mask the just-flipped latest.
@@ -231,12 +232,19 @@ jobs:
               GOT="$("$PREFIX/bin/agentlocks" --version || true)"
               case "$GOT" in
                 *"$VERSION"*) echo "latest resolves $VERSION"; exit 0 ;;
-                *) echo "latest still resolves '$GOT' (propagation lag)" ;;
+                *) echo "latest still resolves '$GOT' (propagation lag $i)" ;;
               esac
+            else
+              echo "unpinned install failed (attempt $i)"
             fi
-            echo "post-flip propagation retry $i"; i=$((i + 1)); sleep 10
+            i=$((i + 1)); sleep 15
           done
-          echo "::warning::agentlocks@$VERSION not yet resolvable post-flip (propagation lag); not rolling back"
+          # The flip already confirmed the registry serves our exact bytes (dist.integrity match), so a
+          # persistent failure HERE means `latest` is not resolving the just-published version -- a real
+          # problem, not benign lag. Fail terminally (the irreversible publish is NOT rolled back; a red
+          # run is the correct signal for the maintainer to investigate the dist-tag).
+          echo "::error::agentlocks@$VERSION not resolvable via an unpinned 'npm i -g agentlocks' after retries (last saw '${GOT:-<install-failed>}')"
+          exit 1
 
   # Separate from flip so a re-run reaches it even when the flip step no-ops on an already-published
   # main@X. Idempotent. Attaches the single bundle tarball as the release asset.

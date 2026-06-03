@@ -1,7 +1,8 @@
 # Repository instructions for agents
 
-Agentlocks is a standalone Bun/TypeScript advisory locking CLI and library. Keep defaults generic:
-do not add prompt-optimization behavior, command aliases, or repository-specific defaults.
+Agentlocks is a standalone advisory locking CLI (Bun/TypeScript dev stack, shipped as one Node
+bundle — a CLI, not a library). Keep defaults generic: do not add prompt-optimization behavior,
+command aliases, or repository-specific defaults.
 
 ## Product maturity policy
 

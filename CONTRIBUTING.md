@@ -8,8 +8,8 @@ Agentlocks is pre-release. Keep changes small, generic, and backed by tests or c
 - Do not add prompt-optimization behavior, command aliases, repository-specific defaults,
   compatibility layers, migration paths, or deprecated names.
 - Do not add dependencies unless the supply-chain checks in `AGENTS.md` are satisfied.
-- Keep public docs aligned with the CLI contract, library exports, generated instruction text, and
-  tests.
+- Keep public docs aligned with the CLI contract, config contract, generated instruction text, and
+  tests (agentlocks is a CLI, not a library — there is no exported API).
 
 ## Local Checks
 
@@ -37,6 +37,5 @@ documented in `AGENTS.md`.
 
 - Explain the user-visible behavior change.
 - List tests and commands run.
-- Include docs updates when command output, config fields, install behavior, or library exports
-  change.
+- Include docs updates when command output, config fields, or install behavior change.
 - Keep unrelated refactors out of the patch.

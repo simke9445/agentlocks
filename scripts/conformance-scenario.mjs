@@ -1,33 +1,32 @@
 #!/usr/bin/env node
-// Cross-platform conformance scenario runner for the agentlocks V2 release.
+// Cross-platform conformance scenario runner for the agentlocks release.
 //
-// This is the black-box gate the CI verify-matrix runs against the INSTALLED
-// agentlocks binary on every OS (linux glibc/musl, macOS, Windows). It drives
-// the binary as an opaque executable and asserts the real lock lifecycle works,
-// so it must stay rock-solid cross-platform. It speaks only the documented CLI
-// contract (no imports from src/), runs under both Node and Bun, and has no
-// external dependencies.
+// This is the black-box gate the conformance matrix runs against the INSTALLED
+// agentlocks CLI on every OS (linux glibc/musl, macOS, Windows). It drives the
+// npm-installed bin as an opaque command and asserts the real lock lifecycle
+// works, so it must stay rock-solid cross-platform. It speaks only the
+// documented CLI contract (no imports from src/), runs under Node (and Bun),
+// and has no external dependencies.
 //
-// Contract (the release workflow calls it exactly like this):
+// Contract (the conformance workflow calls it exactly like this):
 //   node scripts/conformance-scenario.mjs "<agentlocks-invocation>" <mode>
-//   argv[2] = the agentlocks invocation. A single executable path: an absolute
-//             path to the npm-installed launcher shim, the built ".exe"
-//             (windows-unit), the literal "agentlocks" if on PATH, or a Windows
-//             ".cmd" shim. A real executable (path ending in ".exe", or anything
-//             on POSIX) is exec'd directly with shell:false and array args on
-//             every platform, so we never quote and never assume bash. Only a
-//             non-.exe invocation on Windows (an npm ".cmd" shim, which resolves
-//             only through a shell) falls back to shell:true with manual quoting.
+//   argv[2] = the agentlocks invocation: the path to the npm-installed bin.
+//             On POSIX that is a symlink to dist/agentlocks.mjs (honouring its
+//             `#!/usr/bin/env node` shebang); on Windows it is the generated
+//             `agentlocks.cmd` cmd-shim. POSIX is exec'd directly (shell:false,
+//             array args) so we never quote and never assume bash; the Windows
+//             .cmd shim resolves only through a shell, so that case uses
+//             shell:true with manual quoting.
 //   argv[3] = mode: "basic" or "extended".
 //
 // Exit 0 only if every assertion passes. On the first failed assertion it prints
 // a "FAIL: <what>" line (with captured stdout/stderr) and exits 1. Each satisfied
 // assertion prints a "PASS: <step>" line so CI logs stay legible.
 //
-// Why a real acquire/release (not just --version): a Bun-compiled single-file
-// binary's true failure mode is runtime-asset extraction on the FIRST real
-// command, which --version/--help bypass. Acquiring and releasing a lock forces
-// that prebuilt code path and proves it works on this OS.
+// Why a real acquire/release (not just --version): --version only proves the bin
+// shim resolves to `node dist/agentlocks.mjs`. Acquiring and releasing a lock
+// exercises the real lock lifecycle (config load, filesystem I/O, owner
+// identity) and proves it works on this OS.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -37,14 +36,11 @@ import path from "node:path";
 
 const IS_WINDOWS = process.platform === "win32";
 
-// A real executable (a path ending in ".exe", case-insensitive) is spawned
-// directly with shell:false and array args on EVERY platform: no quoting, no
-// shell parsing. This is the windows-unit case, which runs the built .exe.
-// Only a non-.exe invocation on Windows is an npm ".cmd" shim, which resolves
-// solely through a shell, so that single case uses shell:true with manual
-// quoting. On POSIX everything is exec'd directly.
-const INVOCATION_IS_EXE = /\.exe$/i.test(process.argv[2] ?? "");
-const USE_SHELL = IS_WINDOWS && !INVOCATION_IS_EXE;
+// The npm-installed bin is a POSIX symlink (exec'd directly: shell:false, array
+// args, no quoting, no shell parsing) or, on Windows, an `agentlocks.cmd`
+// cmd-shim. A .cmd resolves solely through a shell, so the Windows case uses
+// shell:true with manual quoting. On POSIX everything is exec'd directly.
+const USE_SHELL = IS_WINDOWS;
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -71,10 +67,6 @@ const cwd = mkdtempSync(
 );
 mkdirSync(cwd, { recursive: true });
 
-// The child env always forces the prebuilt path: a Bun single-file binary can
-// silently fall back to a host Bun for --version/--help, so disabling that
-// fallback makes a green run PROVE the embedded binary did the work.
-//
 // Identity must be deterministic, which takes a two-part fix to agentlocks'
 // owner resolution (see session.ts identifyLockOwner):
 //
@@ -98,7 +90,6 @@ const HARNESS_DETECTION_ENV_KEYS = [
 
 const childEnv = {
   ...process.env,
-  AGENTLOCKS_DISABLE_BUN_FALLBACK: "1",
   AGENTLOCKS_AGENT_ID: `ci-conformance-${randomBytes(4).toString("hex")}`,
 };
 for (const key of HARNESS_DETECTION_ENV_KEYS) delete childEnv[key];
@@ -109,12 +100,11 @@ for (const key of HARNESS_DETECTION_ENV_KEYS) delete childEnv[key];
 // {status, stdout, stderr}. On a failed expectation it prints FAIL with the
 // captured streams and exits 1 immediately (first-failure semantics).
 //
-// A real .exe (and anything on POSIX) is spawned directly with shell:false and
-// array args, so spaces and metacharacters need no quoting. Only a non-.exe
-// invocation on Windows (an npm ".cmd" shim) resolves solely through a shell, so
-// that single case uses shell:true; with shell:true the command line is one
-// string, so the executable and every arg are quoted to survive spaces and shell
-// metacharacters.
+// On POSIX the bin symlink is spawned directly with shell:false and array args,
+// so spaces and metacharacters need no quoting. On Windows the `agentlocks.cmd`
+// shim resolves solely through a shell, so that case uses shell:true; with
+// shell:true the command line is one string, so the executable and every arg are
+// quoted to survive spaces and shell metacharacters.
 // ---------------------------------------------------------------------------
 
 function run(args, { expectExit = 0, label } = {}) {
@@ -237,8 +227,8 @@ function cleanup() {
 // Scenario steps
 // ---------------------------------------------------------------------------
 
-// mode "basic": the real prebuilt-binary smoke (runtime-asset extraction +
-// the lock lifecycle), run on every target.
+// mode "basic": the real lock-lifecycle smoke (acquire + release through the
+// installed bin), run on every target.
 function runBasic() {
   console.log(`# basic scenario in ${cwd}`);
 

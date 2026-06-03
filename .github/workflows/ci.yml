@@ -39,14 +39,14 @@ jobs:
       - name: Lint
         run: bun run lint
 
-  smoke:
-    name: install smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  # Build + pack the single Node bundle ONCE; every conformance leg below consumes this same
+  # artifact, so they prove the exact bytes a release would ship (Option 1, bundle-size reduction):
+  # one ~157 KB dist/agentlocks.mjs run under the user's Node, REPLACING the 60-112 MB embedded-Bun
+  # per-platform binaries. `npm pack` runs the prepack hook (`bun run build` -> dist/agentlocks.mjs).
+  pack:
+    name: pack the bundle tarball
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,17 +64,101 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Builds this platform's compiled binary, stages the npm-install layout, and runs the
-      # Node launcher with the Bun fallback disabled, proving `npm i -g agentlocks` works
-      # with no Bun on the machine.
-      - name: Install smoke test
-        run: bun run smoke
+      - name: Pack the tarball
+        run: npm pack
 
-  # Windows port gate (docs/production_ci_design.md section 4.6). White-box: the full lock
-  # suite must pass on Windows. Black-box: a freshly built win32 binary must pass the extended
-  # conformance scenario (rename-replace, conflict, reclaim, git-index cycle, backslash path).
-  # Configure this as a required status check (branch protection) on PRs so the Windows port cannot
-  # regress between releases. The steps live in the reusable workflow, shared with release.yml.
+      - name: Upload tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentlocks-tarball
+          path: agentlocks-*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # Native OS x Node matrix (POSIX). Installs the tarball globally (no Bun present) and runs the
+  # extended conformance scenario + the .ts-config engine contract against the INSTALLED bin shim.
+  # node 22.18.0 is the declared engines floor (first release with unflagged type-stripping);
+  # 24.16.0 mirrors the release pin. fail-fast off so one red leg never hides another's result.
+  # Windows is proved separately by the windows-unit reusable (npm cmd-shim path).
+  install-conformance:
+    name: install conformance (${{ matrix.os }}, node ${{ matrix.node }})
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22.18.0", "24.16.0"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Download tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentlocks-tarball
+
+      # `npm i -g --prefix` puts the bin at <prefix>/bin/agentlocks, a symlink whose
+      # `#!/usr/bin/env node` shebang runs the bundle. No Bun on PATH -> proves the pure-Node path.
+      - name: Install + conformance (POSIX)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREFIX="$RUNNER_TEMP/al-prefix"
+          mkdir -p "$PREFIX"
+          npm i -g --prefix "$PREFIX" "$PWD"/agentlocks-*.tgz
+          BIN="$PREFIX/bin/agentlocks"
+          test -x "$BIN" || { echo "bin missing at $BIN"; ls -la "$PREFIX/bin" || true; exit 1; }
+          node --version
+          "$BIN" --version
+          node scripts/conformance-scenario.mjs "$BIN" extended
+          node scripts/ts-config-smoke.mjs "$BIN"
+
+  # Alpine/musl proof. JS actions cannot run inside an Alpine container (the runner's Node can't be
+  # injected; on arm64 it is unsupported outright), so we run the proof via `docker run` on the
+  # glibc host with the workspace mounted -- the same pattern release.yml uses for its musl legs.
+  # The image's Node 22.22.3 satisfies engines.node >=22.18.
+  musl-conformance:
+    name: musl conformance (alpine)
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentlocks-tarball
+
+      - name: Install + conformance (musl)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            node:22.22.3-alpine3.23@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 \
+            sh -euc '
+              prefix=/tmp/al-prefix
+              mkdir -p "$prefix"
+              npm i -g --prefix "$prefix" /work/agentlocks-*.tgz
+              bin="$prefix/bin/agentlocks"
+              node --version
+              "$bin" --version
+              node scripts/conformance-scenario.mjs "$bin" extended
+              node scripts/ts-config-smoke.mjs "$bin"
+            '
+
+  # Windows port gate (docs/production_ci_design.md section 4.6). White-box: the full lock suite
+  # must pass on Windows. Black-box: a freshly packed Node bundle must install via the npm cmd-shim
+  # (`agentlocks.cmd` -> `node ...\dist\agentlocks.mjs`) and pass the extended conformance scenario
+  # + the .ts-config engine contract. Configure this as a required status check (branch protection)
+  # on PRs so the Windows port cannot regress between releases. The steps live in the reusable
+  # workflow, shared with release.yml.
   windows-unit:
     # Explicit (ci.yml's default is already contents:read): a reusable workflow's token is capped by
     # the caller, so grant the checkout's scope here too, matching release.yml.

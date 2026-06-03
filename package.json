@@ -45,8 +45,6 @@
   "scripts": {
     "build": "bun run build:bundle",
     "build:bundle": "bun scripts/build-bundle.mjs",
-    "build:binaries": "bun scripts/build-binaries.mjs",
-    "smoke": "bun scripts/smoke-install.mjs",
     "prepack": "bun run build",
     "agentlocks": "bun run bin/agentlocks.ts",
     "start": "bun run bin/agentlocks.ts",

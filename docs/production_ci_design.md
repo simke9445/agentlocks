@@ -84,19 +84,18 @@ Full target set (resolution is by exact version after npm's `os`/`cpu`/`libc` fi
 | agentlocks-linux-arm64-musl | linux | arm64 | musl | `bun-linux-arm64-musl` | yes |
 | agentlocks-darwin-arm64 | darwin | arm64 | (none) | `bun-darwin-arm64` | yes |
 | agentlocks-darwin-x64 | darwin | x64 | (none) | `bun-darwin-x64` | yes |
-| agentlocks-win32-x64 | win32 | x64 | (none) | `bun-windows-x64` | temporarily disabled |
+| agentlocks-win32-x64 | win32 | x64 | (none) | `bun-windows-x64` | yes |
 
 `$TARGETS` in `release.yml` is the single source of truth for the shipped set (the deps-injection,
 publish, and release-attach loops all read it); the verify matrix mirrors it leg by leg. To ship or
 drop a target, edit `$TARGETS` and the matrix together.
 
-**win32-x64 is built and tested but temporarily not shipped.** Its first npm publish hit a
-registry-side `E403` spam-detection false positive (the human bootstrap below is pending npm support),
-so it is omitted from `$TARGETS` and the verify matrix; Windows users get the Bun fallback for now.
-The launcher, the `bun-windows-x64` build target, and the `windows-unit` job all keep win32 alive, so
-re-enabling is two lines (add `win32-x64` back to `$TARGETS` and the verify matrix) once its package
-is published once. `win32-arm64` is out of scope until both a Bun `bun-windows-arm64` target and a
-GitHub `windows-11-arm` runner exist.
+**win32-x64 needed a one-time human bootstrap.** Its first npm publish was blocked by a registry-side
+`E403` spam-detection false positive; npm support cleared it (created the package and transferred
+write access), after which it was bootstrap-published once and given a trusted-publisher config. The
+pipeline now publishes and verifies it on `windows-latest` like every other target, so all seven
+platform packages ship. `win32-arm64` is out of scope until both a Bun `bun-windows-arm64` target and
+a GitHub `windows-11-arm` runner exist.
 
 ## 4. The pipeline
 

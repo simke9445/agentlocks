@@ -36,10 +36,7 @@ env:
   NODE_PIN: "24.16.0"
   # Single source of truth for the platform target dirs (the shell loops below read $TARGETS). The
   # verify matrix is necessarily explicit (per-target runner/mode) and must mirror this list.
-  # win32-x64 is temporarily excluded: its npm package awaits a one-time publish (the E403 bootstrap),
-  # so Windows ships via the Bun fallback for now. The lock core is still proven on Windows by the
-  # windows-unit job; re-add win32-x64 here AND the verify leg below once the package is published.
-  TARGETS: "darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl"
+  TARGETS: "darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl win32-x64"
 
 jobs:
   # White-box Windows gate: the lock test suite must pass on Windows before anything publishes, and
@@ -293,6 +290,9 @@ jobs:
           - target: darwin-x64
             runner: macos-15-intel
             mode: basic
+          - target: win32-x64
+            runner: windows-latest
+            mode: extended
     steps:
       # download-artifact below is a JavaScript action; it runs on the glibc HOST for every leg (the
       # musl legs are NOT a job container, since GitHub does not support JS actions in Alpine containers

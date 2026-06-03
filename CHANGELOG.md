@@ -3,6 +3,16 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Added
+
+- **Windows (`win32-x64`) is now a shipped binary target.** `npm i -g agentlocks` on Windows x64
+  resolves a prebuilt binary instead of falling back to Bun, so the full set is seven platform
+  packages. The npm package was bootstrapped (its first publish was blocked by a registry-side
+  spam-detection false positive, since cleared by npm support), trusted publishing was configured,
+  and the release pipeline now publishes and verifies it on `windows-latest` like every other target.
+
 ## 0.7.0
 
 ### Added

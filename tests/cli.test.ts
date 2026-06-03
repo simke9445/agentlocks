@@ -22,7 +22,7 @@ async function runCli(
 ): Promise<CliResult> {
   return execFileAsync(
     process.execPath,
-    ["run", path.join(process.cwd(), "src/index.ts"), ...args],
+    ["run", path.join(process.cwd(), "bin", "agentlocks.ts"), ...args],
     {
       cwd,
       env: { ...process.env, ...env },

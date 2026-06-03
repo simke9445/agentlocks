@@ -51,9 +51,3 @@ export {
   type SessionLivenessProbe,
 } from "./locks/session";
 export type * from "./locks/types";
-
-import { main } from "./cli/index";
-
-if (import.meta.main) {
-  await main();
-}

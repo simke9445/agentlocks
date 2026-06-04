@@ -357,6 +357,17 @@ test("identify json explains whether --mine is supported", async () => {
       mine_supported: true,
     });
 
+    const harnessWinsOverExplicit = await identify(
+      { CODEX_THREAD_ID: "codex-thread" },
+      "explicit-session",
+    );
+    expect(harnessWinsOverExplicit.json).toMatchObject({
+      agent_id: "codex:codex-thread",
+      source: "harness:codex:CODEX_THREAD_ID",
+      reliable: true,
+      mine_supported: true,
+    });
+
     const env = await identify({ AGENTLOCKS_AGENT_ID: "env-agent" });
     expect(env.json).toMatchObject({
       agent_id: "env-agent",
@@ -948,8 +959,10 @@ test("conflict json carries ahead_of and an honest retry-after floor", async () 
       { cwd: workspace, config, registryOptions },
     );
     expect(conflict.exitCode).toBe(3);
+    expect((conflict.json as Record<string, unknown>).exitCode).toBeUndefined();
     expect(conflict.json).toMatchObject({
       kind: "conflict",
+      exit_code: 3,
       ahead_of: 1,
       retry_after_ms: 600_000,
       suggested_action: "retry_later",

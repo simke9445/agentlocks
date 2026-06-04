@@ -149,10 +149,12 @@ Acceptance:
 
 - `identify --json` includes `reliable: boolean`.
 - `identify --json` includes `mine_supported: boolean`.
-- If unsupported, include `mine_unsupported_reason` with a short machine-parseable code.
+- If unsupported, include `mine_unsupported_reason` with a short machine-parseable code:
+  `fallback_identity`, `session_scoped_identity`, `unreliable_identity`, or `missing_identity`.
 - Human output explains the same state without bloating normal help.
 - Tests cover fallback identity, bare Claude session identity, scoped Claude identity, Codex
-  identity, explicit `--agent-id`, and `AGENTLOCKS_AGENT_ID`.
+  identity, explicit `--agent-id`, `--agent-id` with a live harness environment, and
+  `AGENTLOCKS_AGENT_ID`.
 
 ### Gate 8: Generated Instructions Stay Small
 
@@ -325,7 +327,9 @@ Work items:
 Primary tests:
 
 - CLI JSON tests for lock commands, init, doctor, capabilities, git verify, and parse errors.
-- A grep-style test or focused assertion proving public JSON no longer emits `exitCode`.
+- Recursive assertions proving representative public JSON payloads no longer emit `exitCode`,
+  including status, board, conflicts, prune, Git commands, identify, capabilities, init, doctor, and
+  parse errors.
 
 Exit gate:
 
@@ -348,16 +352,22 @@ Work items:
   `status`, `board`, `identify`, `git begin`, `git end`, `git verify`, `init`, `doctor`.
 - Add `id_only_lines` for commands where `id_only` is true.
 - Add compact-vs-verbose notes where the two differ materially.
+- Ensure `git.verify.compact` matches runtime exactly: required `ok`, `exit_code`, `command`,
+  `caller`; optional `state`, `staged_total`, `covered`, `foreign_covered`, `uncovered`, `renames`.
+- Normalize command-level `required` entries so each token is either a flag or a
+  `positionals[].name`; do not use prose tokens such as `lock-id` or `resource`.
 
 Primary tests:
 
 - Capabilities shape test.
 - Size budget test.
 - Golden or snapshot diff for representative capabilities output.
+- Required-token resolvability test for every command.
 
 Exit gate:
 
 - A fresh agent can answer "what JSON does `git begin --json` return?" from capabilities alone.
+- A fresh agent can resolve every `required[]` entry to either a flag or positional name.
 - `bun run check` is green.
 - Commit this chunk before Phase 4.
 
@@ -492,6 +502,11 @@ Work items:
 
 - Produce a contract matrix of public commands, positionals, flags, JSON shapes, `--id-only` shapes,
   exit codes, and tests that cover them.
+- Add a capabilities-versus-runtime conformance guard: for every JSON-capable command, execute a
+  representative invocation and assert live top-level JSON keys include
+  `json_schemas[json_schema_ref].required` and no undeclared keys outside `required + optional`.
+- Run the recursive `exitCode` leak guard against every representative JSON-capable command payload
+  and conflict payloads.
 - Run full check.
 - Run a few black-box smoke commands against the built bundle.
 
@@ -508,6 +523,7 @@ node dist/agentlocks.mjs identify --json
 Exit gate:
 
 - Contract matrix has no uncovered MUST clauses.
+- Capabilities schemas are tied to runtime payloads by tests, not only by manual review.
 - Built bundle smoke checks pass.
 - No unrelated files are staged.
 

@@ -19,23 +19,25 @@ Source of truth:
 | `status` | optional repeatable `resources: resource_spec` | `--mine`, `--json`, `--id-only`, `--verbose` | `lock.status.compact` | `lock_id`, `...` | 0, 2 | `tests/locks.test.ts`: compact lock summaries include normalized resources, owner, reason, status, reclaimable, next |
 | `board` | optional repeatable `resources: resource_spec` | `--mine`, `--json`, `--id-only`, `--verbose` | `lock.board.compact` | `lock_id`, `...` | 0, 2 | `tests/locks.test.ts`: grouped board state and compact summary parity with status |
 | `prune` | none | `--dry-run`, `--json`, `--id-only`, `--verbose` | `lock.prune.compact` | `lock_id`, `...` | 0, 2 | `tests/locks.test.ts`: dry-run behavior, id-only pruned ids |
-| `identify` | none | `--agent-id`, `--json`, `--verbose` | `lock.identified.compact` | unsupported | 0 | `tests/locks.test.ts`: fallback, bare Claude session, scoped Claude, Codex, explicit id, env id reliability |
+| `identify` | none | `--agent-id`, `--json`, `--verbose` | `lock.identified.compact` | unsupported | 0 | `tests/locks.test.ts`: fallback, bare Claude session, scoped Claude, Codex, explicit id, harness precedence over explicit id, env id reliability |
 | `git begin` | none | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `git.begin.compact`; alternate `lock.conflict.compact` | `git_lock_id`, `git_token` | 0, 2, 3 | `tests/locks.test.ts`: git-index conflicts, generation/fence token, id-only line ordering |
 | `git end` | required repeatable `git_lock_ids: lock_id` | `--release-lock`, `--git-token`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `lock.updated.compact` | `git_lock_id`, `released_lock_id`, `...` | 0, 2, 3 | `tests/locks.test.ts`: fence verification and id-only release ordering; `tests/cli.test.ts`: removed generic `--lock` rejected |
-| `git verify` | none | `--staged`, `--include-unstaged`, `--pathspec`, `--pathspec-mode`, `--json`, `--verbose` | `git.verify.compact` | unsupported | 0 | `tests/improvements-040.test.ts`: staged/unstaged/pathspec coverage, foreign coverage, sequencer bypass, no writes |
+| `git verify` | none | `--staged`, `--include-unstaged`, `--pathspec`, `--pathspec-mode`, `--json`, `--verbose` | `git.verify.compact` | unsupported | 0 | `tests/improvements-040.test.ts`: staged/unstaged/pathspec coverage, foreign coverage, sequencer bypass, no writes; `tests/cli.test.ts`: capabilities schema matches runtime keys |
 | `run` | required repeatable `resources: resource_spec`; required child argv after `--` | `--reason`, `--ttl-ms`, `--agent-id` | unsupported; child stdout/stderr own the stream | unsupported | 0, 2, 3 plus child exit code | `tests/cli.test.ts`: wrapped command success and conflict behavior |
 | `edit` | required repeatable `resources: resource_spec`; required child argv after `--` | `--reason`, `--ttl-ms`, `--agent-id` | unsupported; child stdout/stderr own the stream | unsupported | 0, 2, 3 plus child exit code | `tests/cli.test.ts`: keeps lock and prints id |
 | `commit` | required repeatable `resources: resource_spec` | `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | unsupported; wraps git add/commit | unsupported | 0, 2, 3 plus git exit code | `tests/cli.test.ts`: stages/commits only locked resources; commit hook tests cover raw git verification |
 | `init` | none | `--check`, `--harness`, `--no-commit-hook`, `--json`, `--verbose` | `init.compact` | unsupported | 0, 1 | `tests/init.test.ts`: idempotency, check mode, generated AGENTS text, harness files |
-| `capabilities` | none | `--json` | `capabilities.v2` | unsupported | 0 | `tests/cli.test.ts`: schema version, command metadata, positionals, schema refs, id-only lines, size budget |
+| `capabilities` | none | `--json` | `capabilities.v2` | unsupported | 0 | `tests/cli.test.ts`: schema version, command metadata, positionals, resolvable required tokens, schema refs, runtime schema conformance, id-only lines, size budget |
 | `robot-docs guide` | none | none | unsupported text guide | unsupported | 0 | `tests/cli.test.ts` golden output |
 | `doctor` | none | `--json`, `--verbose` | `doctor.compact` | unsupported | 0, 1 | `tests/cli.test.ts`: read-only health checks and verbose diagnostics |
 
 ## Gate Coverage
 
 - Resource specs are raw command inputs; persisted and compact JSON lock summaries use normalized `resources: [{kind,value}]`.
-- Public agent-facing JSON uses `exit_code`; tests recursively reject public `exitCode` leakage.
+- Public agent-facing JSON uses `exit_code`; tests recursively reject public `exitCode` leakage across representative JSON commands and conflict payloads.
 - Capabilities v2 exposes positionals, JSON shape refs, alternate conflict schemas, examples, compact-vs-verbose notes, id-only line metadata, and non-JSON reasons.
+- Capabilities schemas are checked against representative runtime JSON payloads so hand-maintained metadata cannot drift silently.
+- Command-level `required` entries resolve to either flags or positional names.
 - Compact `status`, `board`, and conflict JSON include owner, reason, normalized resources, status, reclaimability, and next action without exposing full lock records.
 - `git begin --id-only` is pinned as exactly two lines: Git lock id, then fence token.
 - `refresh`, `release`, and `git end` use positional lock ids; generic repeatable `--lock` is rejected for those commands.
@@ -47,8 +49,8 @@ Source of truth:
 Completed locally on 2026-06-04:
 
 ```bash
-bun run check                                      # pass: 156 tests, typecheck, lint
-bun run build                                      # pass: dist/agentlocks.mjs, 169.0 KB
+bun run check                                      # pass: 157 tests, typecheck, lint
+bun run build                                      # pass: dist/agentlocks.mjs, 169.35 KB
 node dist/agentlocks.mjs capabilities --json       # pass: schema_version 2
 node dist/agentlocks.mjs robot-docs guide          # pass: guide rendered
 node dist/agentlocks.mjs identify --json           # pass: reliable/mine_supported JSON rendered

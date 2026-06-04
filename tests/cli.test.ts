@@ -60,7 +60,10 @@ interface RuntimeSchemaSummary {
 interface RuntimeCommandSummary {
   name: string;
   json: boolean;
+  json_kind: string | null;
   json_schema_ref: string | null;
+  json_alternate_schema_refs?: string[];
+  json_example?: JsonObject | null;
   flags: string[];
   positionals: Array<{ name?: unknown }>;
   required: string[];
@@ -87,6 +90,13 @@ function expectPayloadMatchesSchema(
   for (const key of Object.keys(payload)) {
     expect(allowed.has(key), `${commandName} emitted undeclared JSON key ${key}`).toBe(true);
   }
+}
+
+function schemaRefsForCommand(command: RuntimeCommandSummary): string[] {
+  const refs = [];
+  if (command.json_schema_ref) refs.push(command.json_schema_ref);
+  refs.push(...(command.json_alternate_schema_refs ?? []));
+  return refs;
 }
 
 test("help lists top-level lock commands", () => {
@@ -547,6 +557,7 @@ test("capabilities json is compact and machine-readable", async () => {
     required?: unknown[];
     json_kind?: unknown;
     json_schema_ref?: unknown;
+    json_alternate_schema_refs?: unknown[];
     json_example?: Record<string, unknown> | null;
     json_unsupported_reason?: unknown;
     id_only_lines?: unknown[];
@@ -555,6 +566,17 @@ test("capabilities json is compact and machine-readable", async () => {
   expect(payload.json_schemas?.["git.begin.compact"]).toEqual(
     expect.objectContaining({
       required: ["kind", "exit_code", "lock_id", "git_token", "refreshed_lock_ids"],
+    }),
+  );
+  expect(payload.json_schemas?.["lock.updated.compact"]).toEqual(
+    expect.objectContaining({
+      required: ["kind", "exit_code"],
+      optional: ["lock_id", "lock_count", "lock_ids"],
+    }),
+  );
+  expect(payload.json_schemas?.["lock.batch.compact"]).toEqual(
+    expect.objectContaining({
+      required: ["kind", "exit_code", "results"],
     }),
   );
   const acquire = payload.commands?.find((command) => command.name === "acquire");
@@ -577,6 +599,17 @@ test("capabilities json is compact and machine-readable", async () => {
   });
   expect(acquire?.flags).toContain("--reason");
   expect(acquire?.exit_codes).toContain(3);
+  expect(payload.commands?.find((command) => command.name === "expand")).toMatchObject({
+    json_kind: "refreshed",
+    json_schema_ref: "lock.updated.compact",
+    json_example: expect.objectContaining({ kind: "refreshed", exit_code: 0 }),
+  });
+  expect(payload.commands?.find((command) => command.name === "refresh")).toMatchObject({
+    json_alternate_schema_refs: ["lock.batch.compact"],
+  });
+  expect(payload.commands?.find((command) => command.name === "release")).toMatchObject({
+    json_alternate_schema_refs: ["lock.batch.compact"],
+  });
   for (const command of commandMetadata) {
     expect(Array.isArray(command.positionals)).toBe(true);
     expect(Array.isArray(command.required)).toBe(true);
@@ -599,6 +632,18 @@ test("capabilities json is compact and machine-readable", async () => {
       expect(typeof command.json_schema_ref).toBe("string");
       expect(payload.json_schemas?.[command.json_schema_ref as string]).toBeDefined();
       expect(command.json_example && typeof command.json_example === "object").toBe(true);
+      for (const alternateRef of command.json_alternate_schema_refs ?? []) {
+        expect(typeof alternateRef).toBe("string");
+        expect(payload.json_schemas?.[alternateRef as string]).toBeDefined();
+      }
+      const schema = payload.json_schemas?.[command.json_schema_ref as string];
+      if (schema && command.json_example) {
+        expectPayloadMatchesSchema(
+          `${String(command.name)} json_example`,
+          command.json_example,
+          schema,
+        );
+      }
       if (command.verbose) expect(typeof command.compact_vs_verbose).toBe("string");
     } else {
       expect(command.json_kind).toBeNull();
@@ -622,6 +667,18 @@ test("capabilities json is compact and machine-readable", async () => {
       exit_code: 0,
       lock_id: expect.any(String),
       git_token: expect.any(String),
+    }),
+  });
+  expect(payload.commands?.find((command) => command.name === "git end")).toMatchObject({
+    json_kind: "batch",
+    json_schema_ref: "lock.batch.compact",
+    json_alternate_schema_refs: ["lock.updated.compact"],
+    json_example: expect.objectContaining({
+      kind: "batch",
+      exit_code: 0,
+      results: expect.arrayContaining([
+        expect.objectContaining({ kind: "released", exit_code: 0 }),
+      ]),
     }),
   });
   const gitVerify = payload.commands?.find((command) => command.name === "git verify");
@@ -703,6 +760,14 @@ test("capabilities json is compact and machine-readable", async () => {
   expect(payload.commands?.find((command) => command.name === "init")?.flags).toContain(
     "--harness",
   );
+  expect(payload.commands?.find((command) => command.name === "init")?.json_example).toEqual(
+    expect.objectContaining({
+      instructions_path: "AGENTS.md",
+    }),
+  );
+  expect(
+    payload.commands?.find((command) => command.name === "init")?.json_example,
+  ).not.toHaveProperty("root");
   expect(payload.commands?.some((command) => command.name === "install")).toBe(false);
   expect(payload.commands?.find((command) => command.name === "prune")?.flags).toContain(
     "--dry-run",
@@ -742,6 +807,9 @@ test("capabilities JSON schemas match representative runtime JSON", async () => 
     commands: RuntimeCommandSummary[];
     json_schemas: Record<string, RuntimeSchemaSummary>;
   };
+  const commandByName = new Map(
+    capabilities.commands.map((command) => [command.name, command] as const),
+  );
   const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-capabilities-runtime-"));
   const env = {
     CLAUDE_CODE_SESSION_ID: "",
@@ -752,70 +820,241 @@ test("capabilities JSON schemas match representative runtime JSON", async () => 
 
   try {
     await execFileAsync("git", ["init"], { cwd: workspace });
-    await writeFile(path.join(workspace, "a.ts"), "export const a = 1;\n");
+    for (const name of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+      await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 1;\n`);
+    }
 
-    const runtimePayloads: Record<string, JsonObject> = {
-      capabilities,
-      identify: parseJsonObject(await runCli(["identify", "--json"], workspace, env)),
-      init: parseJsonObject(await runCli(["init", "--check", "--json"], workspace, env)),
-      doctor: parseJsonObject(await runCli(["doctor", "--json"], workspace, env)),
-      prune: parseJsonObject(await runCli(["prune", "--dry-run", "--json"], workspace, env)),
-      "git verify": parseJsonObject(await runCli(["git", "verify", "--json"], workspace, env)),
-    };
+    const runtimeCases: Array<{
+      commandName: string;
+      payload: JsonObject;
+      expectedDiscriminator: string;
+      discriminatorKey?: string;
+      schemaRef?: string;
+    }> = [
+      {
+        commandName: "capabilities",
+        payload: capabilities,
+        expectedDiscriminator: "capabilities",
+      },
+      {
+        commandName: "identify",
+        payload: parseJsonObject(await runCli(["identify", "--json"], workspace, env)),
+        expectedDiscriminator: "identified",
+      },
+      {
+        commandName: "init",
+        payload: parseJsonObject(await runCli(["init", "--check", "--json"], workspace, env)),
+        expectedDiscriminator: "init",
+      },
+      {
+        commandName: "doctor",
+        payload: parseJsonObject(await runCli(["doctor", "--json"], workspace, env)),
+        expectedDiscriminator: "doctor",
+      },
+      {
+        commandName: "prune",
+        payload: parseJsonObject(await runCli(["prune", "--dry-run", "--json"], workspace, env)),
+        expectedDiscriminator: "pruned",
+      },
+      {
+        commandName: "git verify",
+        payload: parseJsonObject(await runCli(["git", "verify", "--json"], workspace, env)),
+        expectedDiscriminator: "git verify",
+        discriminatorKey: "command",
+      },
+    ];
 
-    runtimePayloads.acquire = parseJsonObject(
+    const acquirePayload = parseJsonObject(
       await runCli(["acquire", "a.ts", "--reason", "schema", "--json"], workspace, env),
     );
-    const lockId = runtimePayloads.acquire.lock_id;
+    runtimeCases.push({
+      commandName: "acquire",
+      payload: acquirePayload,
+      expectedDiscriminator: "acquired",
+    });
+    const lockId = acquirePayload.lock_id;
     expect(typeof lockId).toBe("string");
 
-    runtimePayloads.expand = parseJsonObject(
-      await runCli(["expand", "b.ts", "--lock", lockId as string, "--json"], workspace, env),
-    );
-    runtimePayloads.refresh = parseJsonObject(
-      await runCli(["refresh", lockId as string, "--json"], workspace, env),
-    );
-    runtimePayloads.status = parseJsonObject(await runCli(["status", "--json"], workspace, env));
-    runtimePayloads.board = parseJsonObject(await runCli(["board", "--json"], workspace, env));
+    runtimeCases.push({
+      commandName: "expand",
+      payload: parseJsonObject(
+        await runCli(["expand", "b.ts", "--lock", lockId as string, "--json"], workspace, env),
+      ),
+      expectedDiscriminator: "refreshed",
+    });
+    runtimeCases.push({
+      commandName: "refresh",
+      payload: parseJsonObject(
+        await runCli(["refresh", lockId as string, "--json"], workspace, env),
+      ),
+      expectedDiscriminator: "refreshed",
+    });
+    runtimeCases.push({
+      commandName: "status",
+      payload: parseJsonObject(await runCli(["status", "--json"], workspace, env)),
+      expectedDiscriminator: "status",
+    });
+    runtimeCases.push({
+      commandName: "board",
+      payload: parseJsonObject(await runCli(["board", "--json"], workspace, env)),
+      expectedDiscriminator: "board",
+    });
 
-    runtimePayloads["git begin"] = parseJsonObject(
+    const gitBeginPayload = parseJsonObject(
       await runCli(
         ["git", "begin", "--refresh-lock", lockId as string, "--reason", "schema commit", "--json"],
         workspace,
         env,
       ),
     );
-    const gitLockId = runtimePayloads["git begin"].lock_id;
-    const gitToken = runtimePayloads["git begin"].git_token;
+    runtimeCases.push({
+      commandName: "git begin",
+      payload: gitBeginPayload,
+      expectedDiscriminator: "git-begin",
+    });
+    const gitLockId = gitBeginPayload.lock_id;
+    const gitToken = gitBeginPayload.git_token;
     expect(typeof gitLockId).toBe("string");
     expect(typeof gitToken).toBe("string");
 
-    runtimePayloads["git end"] = parseJsonObject(
-      await runCli(
-        ["git", "end", gitLockId as string, "--git-token", gitToken as string, "--json"],
-        workspace,
-        env,
+    runtimeCases.push({
+      commandName: "git end",
+      payload: parseJsonObject(
+        await runCli(
+          [
+            "git",
+            "end",
+            gitLockId as string,
+            "--release-lock",
+            lockId as string,
+            "--git-token",
+            gitToken as string,
+            "--json",
+          ],
+          workspace,
+          env,
+        ),
       ),
+      expectedDiscriminator: "batch",
+      schemaRef: "lock.batch.compact",
+    });
+
+    const singleRelease = parseJsonObject(
+      await runCli(["acquire", "c.ts", "--reason", "single release", "--json"], workspace, env),
     );
-    runtimePayloads.release = parseJsonObject(
-      await runCli(["release", lockId as string, "--json"], workspace, env),
-    );
+    const singleReleaseId = singleRelease.lock_id;
+    expect(typeof singleReleaseId).toBe("string");
+    runtimeCases.push({
+      commandName: "release",
+      payload: parseJsonObject(
+        await runCli(["release", singleReleaseId as string, "--json"], workspace, env),
+      ),
+      expectedDiscriminator: "released",
+    });
+
+    const mineA = parseJsonObject(
+      await runCli(["acquire", "d.ts", "--reason", "mine a", "--json"], workspace, env),
+    ).lock_id;
+    const mineB = parseJsonObject(
+      await runCli(["acquire", "e.ts", "--reason", "mine b", "--json"], workspace, env),
+    ).lock_id;
+    expect(typeof mineA).toBe("string");
+    expect(typeof mineB).toBe("string");
+    runtimeCases.push({
+      commandName: "refresh",
+      payload: parseJsonObject(await runCli(["refresh", "--mine", "--json"], workspace, env)),
+      expectedDiscriminator: "refreshed",
+      schemaRef: "lock.updated.compact",
+    });
+    runtimeCases.push({
+      commandName: "release",
+      payload: parseJsonObject(await runCli(["release", "--mine", "--json"], workspace, env)),
+      expectedDiscriminator: "released",
+      schemaRef: "lock.updated.compact",
+    });
+
+    const multiA = parseJsonObject(
+      await runCli(["acquire", "f.ts", "--reason", "multi a", "--json"], workspace, env),
+    ).lock_id;
+    const multiB = parseJsonObject(
+      await runCli(["acquire", "g.ts", "--reason", "multi b", "--json"], workspace, env),
+    ).lock_id;
+    expect(typeof multiA).toBe("string");
+    expect(typeof multiB).toBe("string");
+    runtimeCases.push({
+      commandName: "refresh",
+      payload: parseJsonObject(
+        await runCli(["refresh", multiA as string, multiB as string, "--json"], workspace, env),
+      ),
+      expectedDiscriminator: "batch",
+      schemaRef: "lock.batch.compact",
+    });
+    runtimeCases.push({
+      commandName: "release",
+      payload: parseJsonObject(
+        await runCli(["release", multiA as string, multiB as string, "--json"], workspace, env),
+      ),
+      expectedDiscriminator: "batch",
+      schemaRef: "lock.batch.compact",
+    });
+
+    await runCli(["acquire", "h.ts", "--reason", "first", "--agent-id", "agent-1"], workspace, env);
+    runtimeCases.push({
+      commandName: "acquire",
+      payload: parseJsonObject(
+        await runCli(
+          ["acquire", "h.ts", "--reason", "conflict", "--agent-id", "agent-2", "--json"],
+          workspace,
+          env,
+        ),
+      ),
+      expectedDiscriminator: "conflict",
+      schemaRef: "lock.conflict.compact",
+    });
 
     const jsonCommands = capabilities.commands.filter((command) => command.json);
-    expect(Object.keys(runtimePayloads).sort()).toEqual(
+    expect([...new Set(runtimeCases.map((runtimeCase) => runtimeCase.commandName))].sort()).toEqual(
       jsonCommands.map((command) => command.name).sort(),
     );
 
-    for (const command of jsonCommands) {
-      const schemaRef = command.json_schema_ref;
+    for (const runtimeCase of runtimeCases) {
+      const command = commandByName.get(runtimeCase.commandName);
+      expect(command, `${runtimeCase.commandName} must exist in capabilities`).toBeDefined();
+      if (!command) throw new Error(`missing command metadata for ${runtimeCase.commandName}`);
+      const allowedSchemaRefs = schemaRefsForCommand(command);
+      const schemaRef = runtimeCase.schemaRef ?? command.json_schema_ref;
       expect(typeof schemaRef).toBe("string");
+      expect(
+        allowedSchemaRefs.includes(schemaRef as string),
+        `${runtimeCase.commandName} runtime case schema ${String(schemaRef)} must be primary or alternate`,
+      ).toBe(true);
       const schema = capabilities.json_schemas[schemaRef as string];
       expect(schema).toBeDefined();
-      const payload = runtimePayloads[command.name];
-      expect(payload).toBeDefined();
-      if (!schema || !payload) throw new Error(`missing conformance fixture for ${command.name}`);
-      expectPayloadMatchesSchema(command.name, payload, schema);
-      expectNoExitCodeKey(payload);
+      if (!schema) throw new Error(`missing schema ${String(schemaRef)}`);
+      const discriminatorKey = runtimeCase.discriminatorKey ?? "kind";
+      expect(
+        runtimeCase.payload[discriminatorKey],
+        `${runtimeCase.commandName} discriminator`,
+      ).toBe(runtimeCase.expectedDiscriminator);
+      expectPayloadMatchesSchema(runtimeCase.commandName, runtimeCase.payload, schema);
+      if (schemaRef === command.json_schema_ref && schema.required.includes("kind")) {
+        expect(runtimeCase.payload.kind, `${runtimeCase.commandName} primary kind`).toBe(
+          command.json_kind,
+        );
+      }
+      if (runtimeCase.schemaRef === "lock.batch.compact") {
+        expect(Array.isArray(runtimeCase.payload.results)).toBe(true);
+        expect((runtimeCase.payload.results as unknown[]).length).toBeGreaterThan(1);
+      }
+      if (
+        runtimeCase.schemaRef === "lock.updated.compact" &&
+        ["refresh", "release"].includes(runtimeCase.commandName)
+      ) {
+        expect(runtimeCase.payload.lock_count).toBeGreaterThan(1);
+        expect(Array.isArray(runtimeCase.payload.lock_ids)).toBe(true);
+        expect(runtimeCase.payload.lock_id).toBeUndefined();
+      }
+      expectNoExitCodeKey(runtimeCase.payload);
     }
   } finally {
     await rm(workspace, { recursive: true, force: true });

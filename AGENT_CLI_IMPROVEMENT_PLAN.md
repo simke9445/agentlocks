@@ -350,12 +350,19 @@ Work items:
 - Add compact JSON schema refs or small inline schemas.
 - Add examples for the commands agents use most: `acquire`, `expand`, `refresh`, `release`,
   `status`, `board`, `identify`, `git begin`, `git end`, `git verify`, `init`, `doctor`.
+- Add `json_alternate_schema_refs` where one command has multiple valid runtime shapes, including
+  conflict payloads and multi-result `batch` envelopes.
+- Model `lock.batch.compact` for multi-operation JSON such as multi-id `refresh`/`release` and
+  `git end <git_lock_id> --release-lock <lock_id> --json`.
+- Keep examples schema-valid: every `json_example` must include its schema's required top-level
+  keys and avoid verbose-only fields such as `root` in compact `init`.
 - Add `id_only_lines` for commands where `id_only` is true.
 - Add compact-vs-verbose notes where the two differ materially.
 - Ensure `git.verify.compact` matches runtime exactly: required `ok`, `exit_code`, `command`,
   `caller`; optional `state`, `staged_total`, `covered`, `foreign_covered`, `uncovered`, `renames`.
 - Normalize command-level `required` entries so each token is either a flag or a
   `positionals[].name`; do not use prose tokens such as `lock-id` or `resource`.
+- Advertise `expand --json` with the runtime kind it actually emits.
 
 Primary tests:
 
@@ -363,6 +370,7 @@ Primary tests:
 - Size budget test.
 - Golden or snapshot diff for representative capabilities output.
 - Required-token resolvability test for every command.
+- Example-vs-schema validation for every JSON-capable command.
 
 Exit gate:
 
@@ -505,6 +513,13 @@ Work items:
 - Add a capabilities-versus-runtime conformance guard: for every JSON-capable command, execute a
   representative invocation and assert live top-level JSON keys include
   `json_schemas[json_schema_ref].required` and no undeclared keys outside `required + optional`.
+- Include divergent documented branches in that guard: `refresh --mine`, `release --mine`,
+  multi-positional `refresh`, multi-positional `release`, conflict JSON, and
+  `git end <git_lock_id> --release-lock <lock_id> --json`.
+- Assert runtime discriminators against capabilities: `kind` must match `json_kind` when the schema
+  has a `kind` field, and schema-specific discriminators such as `git verify`'s `command` field must
+  match their documented literal.
+- Validate every command `json_example` against its declared schema.
 - Run the recursive `exitCode` leak guard against every representative JSON-capable command payload
   and conflict payloads.
 - Run full check.

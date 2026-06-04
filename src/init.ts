@@ -201,6 +201,7 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "",
     "This repository uses Agentlocks advisory locks for multi-agent editing.",
     "",
+    "- For command shapes, JSON fields, and `--id-only` line contracts, run `agentlocks capabilities --json`; for the longer agent guide, run `agentlocks robot-docs guide`.",
     "- Acquire locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
     `- Use \`${acquire}\` and keep requested resource specs narrow. Quote every resource spec; glob-like specs are inferred from \`*\`, \`?\`, or bracket classes.`,
     `- Expand before touching newly needed resources with \`${expand}\`; do not edit outside the held lock set.`,
@@ -212,6 +213,7 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     `- Only if you must drive \`git\` yourself: \`${gitBegin}\` (it prints the git lock id then a fence token),`,
     "  stage only paths covered by your held locks, `git commit`, then",
     `  \`${gitEnd}\`. The \`--git-token\` aborts the release if the index lease was reclaimed mid-commit.`,
+    "- Before using `--mine`, run `agentlocks identify --json` and require `mine_supported: true`.",
     "- Release promptly after commit or handoff with `agentlocks release <lock_id>` (or `agentlocks release --mine`).",
     AGENTLOCKS_AGENTS_END,
   ].join("\n");

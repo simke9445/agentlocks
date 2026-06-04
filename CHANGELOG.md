@@ -34,6 +34,10 @@ contract change in place with no migration layer.
 - **`identify --json` now explains `--mine` reliability.** It reports `reliable`,
   `mine_supported`, and a short `mine_unsupported_reason` for fallback or bare Claude session
   identities so agents can decide before trying `refresh --mine` or `release --mine`.
+- **Generated agent instructions now point to live CLI contracts.** The AGENTS snippet and
+  `robot-docs guide` direct agents to `capabilities --json` for command shapes, JSON fields,
+  `--id-only` line contracts, and exit codes, while keeping the pasted instructions focused on the
+  locking and commit protocol.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages

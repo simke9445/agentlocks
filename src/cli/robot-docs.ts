@@ -40,6 +40,7 @@ export function renderRobotDocsGuide(): string {
     "",
     "Recover:",
     "- If you lost your lock ids, run agentlocks status --mine, then agentlocks release --mine / refresh --mine.",
+    "- Before using --mine, run agentlocks identify --json and require mine_supported: true.",
     "- If a conflict returns prune_then_retry, run agentlocks prune --dry-run --json, then agentlocks prune.",
     "- If an unknown flag error prints next:, run that exact command.",
     "- If ownership fails, continue from the same harness agent or work on unlocked files.",
@@ -47,6 +48,6 @@ export function renderRobotDocsGuide(): string {
     "Output contract:",
     "- Prefer --json for data surfaces.",
     "- Treat stdout as data and stderr as diagnostics.",
-    "- Read exit codes from agentlocks capabilities --json.",
+    "- Read flags, JSON shapes, id-only lines, and exit codes from agentlocks capabilities --json.",
   ].join("\n");
 }

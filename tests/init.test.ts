@@ -238,6 +238,9 @@ test("generated AGENTS snippet renders agentlocks command usage", () => {
   const snippet = agentlocksAgentsSnippet(config);
   expect(snippet).toContain("agentlocks acquire");
   expect(snippet).toContain("agentlocks refresh");
+  expect(snippet).toContain("agentlocks capabilities --json");
+  expect(snippet).toContain("agentlocks robot-docs guide");
+  expect(snippet).toContain("mine_supported: true");
   // `agentlocks commit` is the preferred, explained commit path; git begin/end stays as the alternative.
   expect(snippet).toContain("agentlocks commit");
   expect(snippet).toContain("prefer the one-command path");

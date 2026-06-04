@@ -21,6 +21,9 @@ contract change in place with no migration layer.
   npm one (a `#!/usr/bin/env node` symlink on POSIX, an `agentlocks.cmd` cmd-shim on Windows), so
   Windows is a first-class target served the npm way with no `.exe`. The seven platform packages, the
   `optionalDependencies` fan-out, and the Bun-fallback launcher (`bin/agentlocks.mjs`) are gone.
+- **The npm install tree is dependency-free.** `commander` is bundled into `dist/agentlocks.mjs` and
+  kept only as a dev dependency for building the CLI, so package managers no longer install a second
+  copy of the parser library alongside the bundled command.
 - **`engines.node` is now `>=22.18`** (was `>=18`). Node 22.18 is the first release with unflagged
   `.ts` type-stripping, which is how the bundle loads a scaffolded `agentlocks.config.ts` without Bun
   on the machine. The release/CI conformance matrix proves the bundle on this floor (22.18.0), a 22.x

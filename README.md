@@ -22,6 +22,9 @@ tripping over each other: two edit the same file and silently overwrite work, a 
   <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.svg" alt="Terminal demo showing Codex holding src/auth.ts and Claude Code receiving an Agentlocks lock conflict with owner, reason, and next command." width="960">
 </p>
 
+Agentlocks is advisory: it coordinates agents that check the lock before writing. It makes overlaps
+visible and scriptable, but it does not stop a process that ignores the protocol.
+
 It's **agent-native**: identity comes from the harness, so there are no ids to manage;
 state-reporting commands speak JSON; errors name the exact fix; and the contract tells the agent
 what to run next. No daemon, no database, no hosted service. Just files under `.agentlocks/locks/`.
@@ -71,7 +74,7 @@ A typo doesn't dead-end the agent. It teaches:
 
 ```text
 $ agentlocks status --jason
-agentlocks error: error: unknown option '--jason'
+agentlocks error: unknown option '--jason'
 (Did you mean --json?)
 next: agentlocks status --json
 ```
@@ -300,7 +303,7 @@ harness integrations and recovery from outside the original harness agent.
 When `--json` is present, parse and runtime errors use compact payloads shaped like:
 
 ```json
-{"ok":false,"exit_code":1,"code":"commander.unknownOption","message":"error: unknown option '--jason'\n(Did you mean --json?)","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
+{"ok":false,"exit_code":1,"code":"commander.unknownOption","message":"unknown option '--jason'\n(Did you mean --json?)","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
 ```
 
 ## Configuration

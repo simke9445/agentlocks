@@ -1,6 +1,7 @@
 # X Thread Draft
 
-Status: draft. Do not post until demo media exists and the latest npm install is verified.
+Status: draft. Demo media exists; do not post until the latest npm install is re-verified and the
+maintainer approves launch timing.
 
 ## Thread
 
@@ -9,7 +10,7 @@ worktree without silently clobbering each other.
 
 The second overlapping agent gets the blocking owner, reason, and next command.
 
-[demo GIF]
+[attach `assets/agentlocks-demo-collision.gif`]
 
 2/ The common answer is "use one git worktree per agent."
 
@@ -61,7 +62,7 @@ overclaims, I will fix it.
 
 ## Media
 
-Attach `assets/agentlocks-demo-collision.gif` once Phase 3 is complete.
+Attach `assets/agentlocks-demo-collision.gif`.
 
 ## Short Post Variant
 

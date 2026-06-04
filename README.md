@@ -21,7 +21,7 @@ tripping over each other: two edit the same file and silently overwrite work, a 
 **Agentlocks turns those collision points into explicit, scriptable leases.**
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.svg" alt="Terminal demo showing Codex holding src/auth.ts and Claude Code receiving an Agentlocks lock conflict with owner, reason, and next command." width="960">
+  <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.gif" alt="Animated terminal demo showing Codex holding src/auth.ts and Claude Code receiving an Agentlocks lock conflict with owner, reason, and next command." width="640">
 </p>
 
 Agentlocks is advisory: it coordinates agents that check the lock before writing. It makes overlaps

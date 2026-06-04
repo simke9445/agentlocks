@@ -1,16 +1,15 @@
 # Agentlocks Demo Script
 
-Status: Phase 3 static visual complete; animated GIF/video remains optional.
+Status: Phase 3 static and motion demo assets complete.
 
-Current asset:
+Current assets:
 
 - `assets/agentlocks-demo-collision.svg`
+- `assets/agentlocks-demo-collision.gif`
 - grounded in a real 2026-06-04 command transcript from a temp Git repo, with the public command
   text normalized to rely on automatic Codex and Claude Code identity
-- embedded near the README top fold
-
-Do not publish an animated recording until the final commands have been re-run against the current
-release.
+- SVG embedded near the README top fold
+- GIF available for launch posts that need motion media
 
 ## Demo Goal
 
@@ -158,6 +157,7 @@ Alt text:
 ## Verification Checklist
 
 - `bun run check` is green after any demo-related repo changes.
+- `file assets/agentlocks-demo-collision.gif` reports GIF89a, 640 x 360.
 - The recorded command transcript matches the current README.
 - The demo never says Agentlocks blocks non-participating tools.
 - The conflict output is readable at 1280px width.

@@ -4,18 +4,18 @@ Status: draft. This is an internal launch-day operating sheet. It does not appro
 opening issues, changing repository settings, publishing npm, or approving a GitHub release
 environment.
 
-Captured: 2026-06-04T17:49Z
+Captured: 2026-06-04T17:55Z
 
 ## Current Verified State
 
 Repository:
 
 - GitHub repo: `https://github.com/simke9445/agentlocks`
-- Latest verified pushed commit before this document correction: `e0dc1ff Add phase 7 launch war room`
-- CI: green on `e0dc1ff`
-- CodeQL: green on `e0dc1ff`
-- OpenSSF Scorecard workflow: green on `e0dc1ff`
-- OpenSSF Scorecard API: `5.8` on commit `e0dc1ff`
+- Verified pushed baseline before this war-room update: `1bd8319 Refresh phase 7 launch status`
+- CI: green on `1bd8319`
+- CodeQL: green on `1bd8319`
+- OpenSSF Scorecard workflow: green on `1bd8319`
+- OpenSSF Scorecard API: `5.8` on commit `1bd8319`
 - OpenSSF Scorecard is not a public flex yet; treat it as an internal improvement tracker until the
   score is materially stronger.
 - Stars / forks / watchers: `2 / 0 / 0`
@@ -36,9 +36,22 @@ npm:
   known human posts, not absolute counts, as the launch signal.
 - npm package still declares runtime dependency `commander@14.0.3`
 - npm provenance is present for `agentlocks@0.8.0`
-- Local npm install verification passed with this machine's release-age override. The latest
-  recheck used a temporary prefix at `/tmp/agentlocks-npm-install-check.88HRS9` and printed
-  `0.8.0`:
+- Clean npm install verification passed with an empty npm user config and no host `before`
+  override. The latest clean recheck used a temporary prefix at
+  `/tmp/agentlocks-clean-install-check.WE8WHT` and printed `0.8.0`:
+
+```bash
+tmp="$(mktemp -d /tmp/agentlocks-clean-install-check.XXXXXX)"
+userconfig="$tmp/npmrc"
+touch "$userconfig"
+NPM_CONFIG_USERCONFIG="$userconfig" npm install --prefix "$tmp" agentlocks@0.8.0 --ignore-scripts --no-audit --no-fund
+"$tmp/node_modules/.bin/agentlocks" --version
+"$tmp/node_modules/.bin/agentlocks" --help
+```
+
+This is the install pass criterion for default npm users on Node >=22.18. The local
+`--min-release-age=0` command below is only a registry-resolve probe for this workstation because
+its npm `before` config filters out current packages:
 
 ```bash
 tmp="$(mktemp -d /tmp/agentlocks-npm-install-check.XXXXXX)"
@@ -50,8 +63,9 @@ npm install --min-release-age=0 --prefix "$tmp" agentlocks@latest --ignore-scrip
 Why the override is needed here: this machine has npm `before` configured to 2026-05-28, while
 `agentlocks@0.8.0` was published on 2026-06-03T14:51:00Z. Without `--min-release-age=0`, npm
 filters out the published latest version locally and reports `ENOVERSIONS` / `ETARGET`.
-`--min-release-age=0` proves the registry artifact resolves; it does not prove a user enforcing a
-7-day release-age policy can install the latest package before 2026-06-10T14:51:00Z.
+`--min-release-age=0` proves the registry artifact resolves from this workstation; it does not
+prove a user enforcing a 7-day release-age policy can install the latest package before
+2026-06-10T14:51:00Z.
 
 Do not use `doctor --json` as the clean-install pass criterion: in an uninitialized temporary
 prefix, the published CLI correctly warns that config/init files are missing and exits nonzero.

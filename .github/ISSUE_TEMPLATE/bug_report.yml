@@ -1,0 +1,68 @@
+name: Bug report
+description: Report behavior that is incorrect or surprising.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Do not include private security details here; use `SECURITY.md` instead.
+  - type: input
+    id: version
+    attributes:
+      label: Agentlocks version
+      description: Run `agentlocks --version`.
+      placeholder: "0.8.0"
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: Install path
+      description: How did you run Agentlocks?
+      placeholder: "npm i -g agentlocks"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: Include the exact command and the relevant output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, shell, Node version, Bun version if relevant, and whether Codex or Claude Code was involved.
+      placeholder: |
+        macOS 15.5
+        zsh
+        node v24.16.0
+        bun 1.3.13
+        Codex / Claude Code / other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest sequence that reproduces the issue.
+      render: shell
+    validations:
+      required: false

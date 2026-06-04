@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a focused improvement.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is hard or unsafe today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Agentlocks do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include worktrees, separate clones, manual coordination, or other tools if relevant.
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This is generic agent coordination behavior, not a repo-specific prompt or alias.
+          required: true
+        - label: This keeps Agentlocks as a CLI, not a library API.
+          required: true

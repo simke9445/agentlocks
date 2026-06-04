@@ -17,6 +17,7 @@ const updateGoldens = process.env.UPDATE_PERFORMANCE_GOLDENS === "1";
 const rawBundleBudgetBytes = 169_000;
 const gzipBundleBudgetBytes = 45_900;
 const npmPackBudgetBytes = 65_000;
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 interface CliInvocation {
   name: "source" | "bundle" | "shim";
@@ -258,7 +259,7 @@ test("production bundle and package dry-run preserve structural contract", async
 
   const pack = JSON.parse(
     (
-      await execFileAsync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+      await execFileAsync(npmCommand, ["pack", "--dry-run", "--json", "--ignore-scripts"], {
         cwd: root,
       })
     ).stdout,
@@ -500,7 +501,7 @@ async function installPackedShim(): Promise<CliInvocation> {
   const pack = JSON.parse(
     (
       await execFileAsync(
-        "npm",
+        npmCommand,
         ["pack", "--json", "--ignore-scripts", "--pack-destination", packDir],
         { cwd: root },
       )
@@ -509,7 +510,7 @@ async function installPackedShim(): Promise<CliInvocation> {
   const filename = pack[0]?.filename;
   if (!filename) throw new Error("npm pack did not report a filename");
   await execFileAsync(
-    "npm",
+    npmCommand,
     [
       "install",
       "--ignore-scripts",

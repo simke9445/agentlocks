@@ -1,0 +1,356 @@
+{
+  "kind": "capabilities",
+  "schema_version": 1,
+  "name": "agentlocks",
+  "version": "0.8.0",
+  "contract": "agentlocks.capabilities.v1",
+  "commands": [
+    {
+      "name": "acquire",
+      "usage": "agentlocks acquire [resources...] --reason <text>",
+      "summary": "Acquire advisory locks for quoted repo-relative paths or glob patterns.",
+      "category": "lock",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": [
+        "--reason",
+        "--ttl-ms",
+        "--reclaim",
+        "--agent-id",
+        "--json",
+        "--id-only",
+        "--verbose"
+      ],
+      "required": ["--reason", "resource"],
+      "exit_codes": [0, 2, 3],
+      "next": [
+        "agentlocks refresh <lock_id>",
+        "agentlocks git begin --refresh-lock <lock_id> --reason \"<commit intent>\"",
+        "agentlocks release <lock_id>"
+      ]
+    },
+    {
+      "name": "expand",
+      "usage": "agentlocks expand --lock <lock_id> [resources...]",
+      "summary": "Atomically add quoted repo-relative resources to an existing lock.",
+      "category": "lock",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--lock", "--reason", "--ttl-ms", "--agent-id", "--json", "--id-only", "--verbose"],
+      "required": ["--lock", "resource"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks refresh <lock_id>", "agentlocks release <lock_id>"]
+    },
+    {
+      "name": "refresh",
+      "usage": "agentlocks refresh [lock_ids...]",
+      "summary": "Refresh held lock leases.",
+      "category": "lock",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--lock", "--mine", "--ttl-ms", "--agent-id", "--json", "--id-only", "--verbose"],
+      "required": ["lock-id"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks git begin --refresh-lock <lock_id> --reason \"<commit intent>\""]
+    },
+    {
+      "name": "release",
+      "usage": "agentlocks release [lock_ids...]",
+      "summary": "Release held locks, or every lock you hold with --mine.",
+      "category": "lock",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--lock", "--mine", "--agent-id", "--json", "--id-only", "--verbose"],
+      "required": ["lock-id"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks status --json"]
+    },
+    {
+      "name": "status",
+      "usage": "agentlocks status [resources...]",
+      "summary": "Show active locks, optionally filtered by resources or --mine.",
+      "category": "lock",
+      "mutates": false,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--mine", "--json", "--id-only", "--verbose"],
+      "required": [],
+      "exit_codes": [0, 2],
+      "next": ["agentlocks acquire <resources...> --reason \"<intent>\" --id-only"]
+    },
+    {
+      "name": "board",
+      "usage": "agentlocks board [resources...]",
+      "summary": "Overview of active locks grouped by agent with each lease's state.",
+      "category": "lock",
+      "mutates": false,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--mine", "--json", "--id-only", "--verbose"],
+      "required": [],
+      "exit_codes": [0, 2],
+      "next": ["agentlocks acquire <resources...> --reason \"<intent>\" --id-only"]
+    },
+    {
+      "name": "prune",
+      "usage": "agentlocks prune",
+      "summary": "Remove reclaimable expired locks.",
+      "category": "lock",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": ["--dry-run", "--json", "--id-only", "--verbose"],
+      "required": [],
+      "exit_codes": [0, 2],
+      "next": ["agentlocks acquire <resources...> --reason \"<intent>\" --id-only"],
+      "dry_run": "--dry-run"
+    },
+    {
+      "name": "identify",
+      "usage": "agentlocks identify",
+      "summary": "Show detected lock agent identity.",
+      "category": "lock",
+      "mutates": false,
+      "json": true,
+      "id_only": false,
+      "verbose": true,
+      "flags": ["--agent-id", "--json", "--verbose"],
+      "required": [],
+      "exit_codes": [0],
+      "next": ["agentlocks acquire <resources...> --reason \"<intent>\""]
+    },
+    {
+      "name": "git begin",
+      "usage": "agentlocks git begin --reason <text>",
+      "summary": "Acquire the synthetic @git/index lock.",
+      "category": "git",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": [
+        "--reason",
+        "--refresh-lock",
+        "--ttl-ms",
+        "--agent-id",
+        "--json",
+        "--id-only",
+        "--verbose"
+      ],
+      "required": ["--reason"],
+      "exit_codes": [0, 2, 3],
+      "next": [
+        "git add <locked_paths>",
+        "git commit",
+        "agentlocks git end <git_lock_id> --release-lock <lock_id>"
+      ]
+    },
+    {
+      "name": "git end",
+      "usage": "agentlocks git end [git_lock_ids...]",
+      "summary": "Release the synthetic @git/index lock.",
+      "category": "git",
+      "mutates": true,
+      "json": true,
+      "id_only": true,
+      "verbose": true,
+      "flags": [
+        "--lock",
+        "--release-lock",
+        "--git-token",
+        "--agent-id",
+        "--json",
+        "--id-only",
+        "--verbose"
+      ],
+      "required": ["lock-id"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks status --json"]
+    },
+    {
+      "name": "git verify",
+      "usage": "agentlocks git verify",
+      "summary": "Advisory check: are staged paths covered by a held lock? (never blocks)",
+      "category": "git",
+      "mutates": false,
+      "json": true,
+      "id_only": false,
+      "verbose": true,
+      "flags": [
+        "--staged",
+        "--include-unstaged",
+        "--pathspec",
+        "--pathspec-mode",
+        "--json",
+        "--verbose"
+      ],
+      "required": [],
+      "exit_codes": [0],
+      "next": ["agentlocks acquire <resources...> --reason \"<intent>\""]
+    },
+    {
+      "name": "run",
+      "usage": "agentlocks run [resources...] --reason <text> -- <command>",
+      "summary": "Acquire locks, run a command after --, then release.",
+      "category": "lock",
+      "mutates": true,
+      "json": false,
+      "id_only": false,
+      "verbose": false,
+      "flags": ["--reason", "--ttl-ms", "--agent-id"],
+      "required": ["--reason", "-- command"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks status --json"]
+    },
+    {
+      "name": "edit",
+      "usage": "agentlocks edit [resources...] --reason <text> -- <command>",
+      "summary": "Acquire locks, run a command after --, and keep the lock for later turns.",
+      "category": "lock",
+      "mutates": true,
+      "json": false,
+      "id_only": false,
+      "verbose": false,
+      "flags": ["--reason", "--ttl-ms", "--agent-id"],
+      "required": ["--reason", "-- command"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks refresh <lock_id>", "agentlocks release <lock_id>"]
+    },
+    {
+      "name": "commit",
+      "usage": "agentlocks commit [resources...] --reason <text> -m <message>",
+      "summary": "Lock resources and the Git index, stage and commit only those resources, then release.",
+      "category": "git",
+      "mutates": true,
+      "json": false,
+      "id_only": false,
+      "verbose": false,
+      "flags": ["--reason", "--message", "--keep", "--ttl-ms", "--agent-id"],
+      "required": ["--reason"],
+      "exit_codes": [0, 2, 3],
+      "next": ["agentlocks status --json"]
+    },
+    {
+      "name": "init",
+      "usage": "agentlocks init [--check] [--harness auto|codex|claude-code] [--no-commit-hook] [--json]",
+      "summary": "Initialize Agentlocks support files (incl. the commit-hook backstop by default).",
+      "category": "init",
+      "mutates": true,
+      "json": true,
+      "id_only": false,
+      "verbose": true,
+      "flags": ["--check", "--harness", "--no-commit-hook", "--json", "--verbose"],
+      "required": [],
+      "exit_codes": [0, 1],
+      "next": ["agentlocks init --check --json"],
+      "dry_run": "--check"
+    },
+    {
+      "name": "capabilities",
+      "usage": "agentlocks capabilities --json",
+      "summary": "Print the machine-readable CLI contract.",
+      "category": "meta",
+      "mutates": false,
+      "json": true,
+      "id_only": false,
+      "verbose": false,
+      "flags": ["--json"],
+      "required": [],
+      "exit_codes": [0],
+      "next": ["agentlocks status --json"]
+    },
+    {
+      "name": "robot-docs guide",
+      "usage": "agentlocks robot-docs guide",
+      "summary": "Print the concise agent workflow guide.",
+      "category": "meta",
+      "mutates": false,
+      "json": false,
+      "id_only": false,
+      "verbose": false,
+      "flags": [],
+      "required": [],
+      "exit_codes": [0],
+      "next": ["agentlocks capabilities --json", "agentlocks status --json"]
+    },
+    {
+      "name": "doctor",
+      "usage": "agentlocks doctor --json",
+      "summary": "Run read-only Agentlocks health checks.",
+      "category": "meta",
+      "mutates": false,
+      "json": true,
+      "id_only": false,
+      "verbose": true,
+      "flags": ["--json", "--verbose"],
+      "required": [],
+      "exit_codes": [0, 1],
+      "next": ["agentlocks init --check --json"]
+    }
+  ],
+  "exit_codes": [
+    { "code": 0, "name": "success", "meaning": "Command completed successfully." },
+    {
+      "code": 1,
+      "name": "cli_or_check_error",
+      "meaning": "CLI parse error, init check drift, or doctor warning/error result."
+    },
+    {
+      "code": 2,
+      "name": "lock_usage_error",
+      "meaning": "Invalid lock input, missing lock id, or missing lock resource."
+    },
+    { "code": 3, "name": "lock_conflict", "meaning": "Lock conflict or ownership failure." }
+  ],
+  "env": [
+    {
+      "name": "AGENTLOCKS_AGENT_ID",
+      "purpose": "Agent id lookup for unsupported harnesses, after harness detection."
+    },
+    {
+      "name": "AGENTLOCKS_HARNESS_AGENT_ID",
+      "purpose": "Reserved harness-provided agent id, checked before explicit --agent-id."
+    },
+    {
+      "name": "CODEX_THREAD_ID",
+      "purpose": "Codex agent thread id used for automatic agent id detection."
+    },
+    {
+      "name": "CLAUDE_CODE_SESSION_ID",
+      "purpose": "Claude Code session id used as automatic agent id detection fallback."
+    }
+  ],
+  "owner_detection": {
+    "order": [
+      "AGENTLOCKS_HARNESS_AGENT_ID",
+      "CODEX_THREAD_ID",
+      "CLAUDE_CODE_SESSION_ID",
+      "--agent-id",
+      "AGENTLOCKS_AGENT_ID",
+      "fallback"
+    ],
+    "harnesses": [
+      { "name": "codex", "primary_env": "CODEX_THREAD_ID", "scope": "agent" },
+      { "name": "claude-code", "primary_env": "CLAUDE_CODE_SESSION_ID", "scope": "session" }
+    ]
+  },
+  "defaults": {
+    "config_file": "agentlocks.config.ts",
+    "lock_root": ".agentlocks/locks",
+    "ttl_ms": 600000,
+    "max_ttl_ms": 1800000,
+    "unknown_liveness_grace_ms": 90000,
+    "git_index_resource": "@git/index"
+  }
+}

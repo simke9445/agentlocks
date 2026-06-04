@@ -1,0 +1,41 @@
+Agentlocks agent guide
+
+Inspect:
+- agentlocks board
+- agentlocks capabilities --json
+- agentlocks doctor --json
+- agentlocks status --json
+- agentlocks identify --json
+
+Lock before edits:
+- agentlocks acquire <resources...> --reason "<intent>" --id-only
+- agentlocks expand <resources...> --lock <lock_id>
+- agentlocks refresh <lock_id>
+
+Or bundle lock, act, and release in one command:
+- agentlocks run <resources...> --reason "<intent>" -- <command>
+- agentlocks edit <resources...> --reason "<intent>" -- <command>
+- agentlocks commit <resources...> --reason "<commit intent>" -m "<message>"
+
+Commit with the shared Git index:
+- agentlocks git begin --refresh-lock <lock_id> --reason "<commit intent>" --id-only
+  (prints two lines: the git lock id, then a fence token)
+- git add <locked_paths>
+- git commit
+- agentlocks git end <git_lock_id> --git-token <token> --release-lock <lock_id>
+
+Verify before a raw commit:
+- agentlocks git verify --staged          (advisory; never blocks)
+  Covers ordinary commit / commit -a / --amend; rebase/cherry-pick/revert/squash bypass it.
+  Prefer `agentlocks commit` for the coordinated path.
+
+Recover:
+- If you lost your lock ids, run agentlocks status --mine, then agentlocks release --mine / refresh --mine.
+- If a conflict returns prune_then_retry, run agentlocks prune --dry-run --json, then agentlocks prune.
+- If an unknown flag error prints next:, run that exact command.
+- If ownership fails, continue from the same harness agent or work on unlocked files.
+
+Output contract:
+- Prefer --json for data surfaces.
+- Treat stdout as data and stderr as diagnostics.
+- Read exit codes from agentlocks capabilities --json.

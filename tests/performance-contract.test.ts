@@ -14,6 +14,7 @@ const root = process.cwd();
 const goldenDir = path.join(root, "tests/goldens/performance");
 const updateGoldens = process.env.UPDATE_PERFORMANCE_GOLDENS === "1";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const PERFORMANCE_CONTRACT_SETUP_TIMEOUT_MS = 30_000;
 
 interface CliInvocation {
   name: "source" | "bundle" | "shim";
@@ -40,21 +41,24 @@ let bundleInvocation: CliInvocation;
 let sourceInvocation: CliInvocation;
 let shimInvocation: CliInvocation;
 
-beforeAll(async () => {
-  tempRoot = await mkdtemp(path.join(os.tmpdir(), "agentlocks-performance-contract-"));
-  await execFileAsync("bun", ["run", "build"], { cwd: root });
-  sourceInvocation = {
-    name: "source",
-    command: "bun",
-    argsPrefix: ["run", path.join(root, "bin/agentlocks.ts")],
-  };
-  bundleInvocation = {
-    name: "bundle",
-    command: process.execPath,
-    argsPrefix: [path.join(root, "dist/agentlocks.mjs")],
-  };
-  shimInvocation = await installPackedShim();
-});
+beforeAll(
+  async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "agentlocks-performance-contract-"));
+    await execFileAsync("bun", ["run", "build"], { cwd: root });
+    sourceInvocation = {
+      name: "source",
+      command: "bun",
+      argsPrefix: ["run", path.join(root, "bin/agentlocks.ts")],
+    };
+    bundleInvocation = {
+      name: "bundle",
+      command: process.execPath,
+      argsPrefix: [path.join(root, "dist/agentlocks.mjs")],
+    };
+    shimInvocation = await installPackedShim();
+  },
+  { timeout: PERFORMANCE_CONTRACT_SETUP_TIMEOUT_MS },
+);
 
 afterAll(async () => {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });

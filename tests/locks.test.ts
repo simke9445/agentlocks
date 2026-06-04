@@ -399,6 +399,146 @@ test("lock command supports compact ids and batched refresh and release", async 
   });
 });
 
+test("id-only line contracts are stable for successful commands", async () => {
+  await withWorkspace(async (workspace) => {
+    const config = resolveAgentlocksConfig({}, { root: workspace });
+    const acquired = await executeLockCommand(
+      {
+        name: "acquire",
+        resourceSpecs: ["src/app.ts"],
+        reason: "edit app",
+        ttlMs: null,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    const fileLockId = acquired.text.trim();
+    expect(acquired.text.split("\n")).toEqual([fileLockId]);
+
+    const expanded = await executeLockCommand(
+      {
+        name: "expand",
+        lockId: fileLockId,
+        resourceSpecs: ["README.md"],
+        ttlMs: null,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    expect(expanded.text.split("\n")).toEqual([fileLockId]);
+
+    const status = await executeLockCommand(
+      { name: "status", resourceSpecs: [], json: false, idOnly: true },
+      { cwd: workspace, config },
+    );
+    expect(status.text.split("\n")).toEqual([fileLockId]);
+
+    const board = await executeLockCommand(
+      { name: "board", resourceSpecs: [], json: false, idOnly: true },
+      { cwd: workspace, config },
+    );
+    expect(board.text.split("\n")).toEqual([fileLockId]);
+
+    const refreshed = await executeLockCommand(
+      {
+        name: "refresh",
+        lockIds: [fileLockId],
+        ttlMs: null,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    expect(refreshed.text.split("\n")).toEqual([fileLockId]);
+
+    const gitBegin = await executeLockCommand(
+      {
+        name: "git-begin",
+        reason: "commit app",
+        ttlMs: null,
+        agentId: "session-a",
+        refreshLockIds: [fileLockId],
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    const gitBeginLines = gitBegin.text.split("\n");
+    expect(gitBeginLines).toHaveLength(2);
+    expect(gitBeginLines[0]).toMatch(/^lock_/);
+    expect(gitBeginLines[1]).toMatch(/^g\d+$/);
+    const [gitLockId, gitToken] = gitBeginLines as [string, string];
+
+    const gitEnd = await executeLockCommand(
+      {
+        name: "git-end",
+        lockIds: [gitLockId],
+        releaseLockIds: [fileLockId],
+        agentId: "session-a",
+        gitToken,
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    expect(gitEnd.text.split("\n")).toEqual([gitLockId, fileLockId]);
+
+    const releaseTarget = await executeLockCommand(
+      {
+        name: "acquire",
+        resourceSpecs: ["release.ts"],
+        reason: "release test",
+        ttlMs: null,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    const releaseLockId = releaseTarget.text.trim();
+    const released = await executeLockCommand(
+      {
+        name: "release",
+        lockIds: [releaseLockId],
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config },
+    );
+    expect(released.text.split("\n")).toEqual([releaseLockId]);
+
+    let now = new Date("2026-05-04T10:00:00Z");
+    const registryOptions = {
+      now: () => now,
+      sessionProbe: () => ({ status: "dead" as const, evidence: "fixture dead" }),
+    };
+    const stale = await executeLockCommand(
+      {
+        name: "acquire",
+        resourceSpecs: ["stale.ts"],
+        reason: "stale lock",
+        ttlMs: 1000,
+        agentId: "session-a",
+        json: false,
+        idOnly: true,
+      },
+      { cwd: workspace, config, registryOptions },
+    );
+    now = new Date("2026-05-04T10:00:02Z");
+    const pruned = await executeLockCommand(
+      { name: "prune", dryRun: false, json: false, idOnly: true },
+      { cwd: workspace, config, registryOptions },
+    );
+    expect(pruned.text.split("\n")).toEqual([stale.text.trim()]);
+  });
+});
+
 test("prune id-only returns pruned lock ids", async () => {
   await withWorkspace(async (workspace) => {
     let now = new Date("2026-05-04T10:00:00Z");

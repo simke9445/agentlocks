@@ -1,85 +1,87 @@
 # Launch Work Status
 
-Captured: 2026-06-04T15:46Z
+Captured: 2026-06-04T16:44Z
 
-## Completed In This Run
+## Current State
 
-- Created `GITHUB_TRENDING_PLAN.md`, the end-to-end GitHub Trending alignment pipeline.
-- Captured Phase 0 baseline artifacts under `analyses/trending-baseline/`.
-- Created Phase 1 positioning artifacts:
-  - `deliverables/launch/positioning.md`
-  - `deliverables/launch/hn-first-comment.md`
-  - `deliverables/launch/skeptic-faq.md`
-- Created draft launch-package artifacts:
-  - `deliverables/launch/demo-script.md`
-  - `deliverables/launch/show-hn.md`
-  - `deliverables/launch/x-thread.md`
-  - `deliverables/launch/reddit-posts.md`
-  - `deliverables/launch/awesome-list-pr.md`
-  - `deliverables/launch/email-brief.md`
-  - `deliverables/launch/launch-calendar.md`
-- Created Phase 2 read-only correctness audit:
-  - `analyses/trending-correctness/phase2-correctness-audit.md`
+The launch plan has moved through the positioning, correctness, demo, README, and trust-file phases.
+The public repo now has a first-screen collision demo, explicit advisory caveat, community files,
+Dependabot, CodeQL, OpenSSF Scorecard, and high-signal README badges.
 
-## Current Gate
+Current pushed trust baseline:
 
-Phase 2 local correctness and the launch-plan artifacts are green on pushed `main`.
+- pushed commit: `9d95d4c Add trust badges and security links`
+- CI: green on `9d95d4c`
+- CodeQL: green on `9d95d4c`
+- OpenSSF Scorecard workflow: green on `9d95d4c`
+- GitHub community profile: 100%
+- OpenSSF Scorecard API score: 5.8
+- Phase 5 Claude rubric review: 83/100 before the Private Vulnerability Reporting correction;
+  correction integrated in `analyses/trending-trust/phase5-trust-audit.md`
+- published npm package: `agentlocks@0.8.0`
+- current Socket score for published package: overall 75, supply-chain 75, maintenance 91 shallow /
+  89 deep
 
-The earlier parallel source/test refactor landed as:
+Local worktree note: `main` is currently ahead of `origin/main` by another agent's local commit,
+`6a3658d Add agent CLI contract matrix`. Do not conflate that local commit with the pushed public
+baseline until it is pushed and CI is checked.
 
-- `94cd3f7 Unify resource lock arguments`
+## Completed Artifacts
 
-The launch-plan artifact commit landed as:
-
-- `b9d1b2d docs: add GitHub trending launch plan`
-
-Current public-launch gates:
-
-- Phase 3 static collision demo files still need to be committed and pushed;
-- pushed CI has not yet proven the Phase 3 demo SHA;
-- static collision demo asset is embedded in the local README;
-- local SVG render verification passed; GitHub README render verification remains pending;
-- animated GIF/video remains optional;
-- dependency cleanup files are under a separate lock and are not part of the Phase 3 demo commit.
+- `GITHUB_TRENDING_PLAN.md`
+- `analyses/trending-baseline/repo-state.md`
+- `analyses/trending-baseline/npm-state.json`
+- `analyses/trending-baseline/traffic-state.json`
+- `analyses/trending-baseline/socket-score.md`
+- `analyses/trending-baseline/launch-decision-card.md`
+- `deliverables/launch/positioning.md`
+- `deliverables/launch/hn-first-comment.md`
+- `deliverables/launch/skeptic-faq.md`
+- `analyses/trending-correctness/phase2-correctness-audit.md`
+- `assets/agentlocks-demo-collision.svg`
+- `deliverables/launch/demo-script.md`
+- `deliverables/launch/show-hn.md`
+- `deliverables/launch/x-thread.md`
+- `deliverables/launch/reddit-posts.md`
+- `deliverables/launch/awesome-list-pr.md`
+- `deliverables/launch/email-brief.md`
+- `deliverables/launch/launch-calendar.md`
+- `analyses/trending-trust/phase5-trust-audit.md`
 
 ## Verification
 
-Green before the parallel source/test refactor:
+Current verified commands and services:
 
-- Phase 0 `bun run check`: 151 tests passed, typecheck passed, Biome passed.
+- `bun run check` passed locally after the trust-file work: 156 tests, typecheck, and Biome.
+- `actionlint .github/workflows/*.yml` passed after adding CodeQL and Scorecard workflows.
+- CI run `26965671310` passed on pushed commit `9d95d4c`.
+- CodeQL run `26965669346` passed on pushed commit `9d95d4c`.
+- OpenSSF Scorecard run `26965668626` passed on pushed commit `9d95d4c`.
+- `gh api repos/simke9445/agentlocks/community/profile` reports `health_percentage: 100`.
+- `curl https://api.scorecard.dev/projects/github.com/simke9445/agentlocks` reports score `5.8`.
+- `socket package score npm agentlocks --markdown` reports current published package score for
+  `agentlocks@0.8.0`.
+- `gh api repos/simke9445/agentlocks/private-vulnerability-reporting` reports
+  `{"enabled":false}`.
+- Claude review artifact:
+  `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase5-trust-rubric-review-20260604T164538Z.md`.
 
-Current verification:
+## Human Gates Still Open
 
-- `bun run --silent biome check analyses/trending-baseline/npm-state.json analyses/trending-baseline/traffic-state.json`
-  passed.
-- `bun run check` passed on current `HEAD`: 151 tests passed, 0 failed, 624 assertions, typecheck
-  passed, and Biome checked 46 files with no fixes applied.
-- `npm pack --dry-run --json --ignore-scripts` reported a 5-file tarball surface:
-  `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/agentlocks.mjs`, and `package.json`.
-- `npm view agentlocks@latest version time dist.unpackedSize dependencies bin engines --json`
-  confirmed latest `0.8.0`, Node `>=22.18`, bin `agentlocks`, and runtime dependency
-  `commander@14.0.3`.
-- `docs/dependency-evidence.md` was updated to the current single-package dependency reality and now
-  records the current `commander` decision.
-- Claude rubric review completed in
-  `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase2-rubric-review-20260604T154121Z.md`
-  with score 74/100 and recommendation "proceed only after conditions."
-- Phase 3 static demo transcript was verified locally and converted into
-  `assets/agentlocks-demo-collision.svg`.
-- Local `sips` render verification produced a 1280x720 PNG from the SVG, and the rendered terminal
-  panes were legible.
+- Decide whether to enable branch protection / repository rules despite the trunk-based workflow.
+- Enable Private Vulnerability Reporting if the private advisory link in `SECURITY.md` should be
+  live before launch.
+- Decide whether to enable GitHub Discussions.
+- Start OpenSSF Best Practices if the maintainer wants that badge.
+- Approve and publish the next npm release if the dependency-minimized package should be visible to
+  Socket before launch.
+- Upload the GitHub social preview image in repository settings.
+- Approve external launch posts and launch timing.
 
-## Next Steps
+## Next Execution Step
 
-1. Decide whether a literal crash/SIGKILL CLI test is worth adding before launch, or explicitly keep
-   it as a fast-follow because the current launch copy does not claim literal crash recovery.
-2. Keep the dependency cleanup lock separate from Phase 3 demo staging.
-3. Stage only:
-   - `README.md`
-   - `assets/agentlocks-demo-collision.svg`
-   - `deliverables/launch/demo-script.md`
-   - `deliverables/launch/status.md`
-4. Commit the Phase 3 demo artifacts.
-5. Push and confirm CI on the pushed SHA.
-6. Render-check the README image on GitHub.
-7. Optionally record an animated GIF/video if a suitable terminal renderer is installed.
+Proceed to Phase 6 distribution preparation:
+
+- verify each launch copy artifact is channel-specific and does not overpromise enforcement;
+- identify at least 20 credible early users/reposters before launch day;
+- do not post externally without maintainer approval.

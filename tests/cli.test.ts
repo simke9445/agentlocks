@@ -413,18 +413,28 @@ test("capabilities json is compact and machine-readable", async () => {
   expect(result.code).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
-  expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThan(8500);
+  expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThan(25000);
 
   const payload = JSON.parse(result.stdout) as {
     kind?: unknown;
     schema_version?: unknown;
+    contract?: unknown;
     version?: unknown;
+    json_schemas?: Record<string, unknown>;
     commands?: Array<{
       name?: unknown;
       mutates?: unknown;
       json?: unknown;
       id_only?: unknown;
+      verbose?: unknown;
+      positionals?: Array<Record<string, unknown>>;
       flags?: unknown;
+      json_kind?: unknown;
+      json_schema_ref?: unknown;
+      json_example?: Record<string, unknown> | null;
+      json_unsupported_reason?: unknown;
+      id_only_lines?: unknown;
+      compact_vs_verbose?: unknown;
       exit_codes?: unknown;
     }>;
     exit_codes?: Array<{ code?: unknown; name?: unknown; meaning?: unknown }>;
@@ -436,16 +446,82 @@ test("capabilities json is compact and machine-readable", async () => {
   };
 
   expect(payload.kind).toBe("capabilities");
-  expect(payload.schema_version).toBe(1);
+  expect(payload.schema_version).toBe(2);
+  expect(payload.contract).toBe("agentlocks.capabilities.v2");
   // Sourced from package.json; assert against it so a version bump never re-breaks this test.
   expect(payload.version).toBe(packageJson.version);
+  expect(payload.json_schemas?.["git.begin.compact"]).toEqual(
+    expect.objectContaining({
+      required: ["kind", "exit_code", "lock_id", "git_token", "refreshed_lock_ids"],
+    }),
+  );
   const acquire = payload.commands?.find((command) => command.name === "acquire");
   expect(acquire).toMatchObject({
     mutates: true,
     json: true,
+    positionals: [
+      expect.objectContaining({
+        name: "resources",
+        value: "resource_spec",
+        required: true,
+        repeatable: true,
+      }),
+    ],
+    json_kind: "acquired",
+    json_schema_ref: "lock.acquired.compact",
+    json_example: expect.objectContaining({ kind: "acquired", exit_code: 0 }),
+    id_only_lines: ["lock_id"],
   });
   expect(acquire?.flags).toContain("--reason");
   expect(acquire?.exit_codes).toContain(3);
+  for (const command of payload.commands ?? []) {
+    expect(Array.isArray(command.positionals)).toBe(true);
+    if (command.json) {
+      expect(typeof command.json_kind).toBe("string");
+      expect(typeof command.json_schema_ref).toBe("string");
+      expect(payload.json_schemas?.[command.json_schema_ref as string]).toBeDefined();
+      expect(command.json_example && typeof command.json_example === "object").toBe(true);
+      if (command.verbose) expect(typeof command.compact_vs_verbose).toBe("string");
+    } else {
+      expect(command.json_kind).toBeNull();
+      expect(command.json_schema_ref).toBeNull();
+      expect(command.json_example).toBeNull();
+      expect(typeof command.json_unsupported_reason).toBe("string");
+    }
+    if (command.id_only) {
+      expect(Array.isArray(command.id_only_lines)).toBe(true);
+      expect((command.id_only_lines as unknown[]).length).toBeGreaterThan(0);
+    }
+  }
+  const gitBegin = payload.commands?.find((command) => command.name === "git begin");
+  expect(gitBegin).toMatchObject({
+    positionals: [],
+    json_kind: "git-begin",
+    json_schema_ref: "git.begin.compact",
+    id_only_lines: ["git_lock_id", "git_token"],
+    json_example: expect.objectContaining({
+      kind: "git-begin",
+      exit_code: 0,
+      lock_id: expect.any(String),
+      git_token: expect.any(String),
+    }),
+  });
+  const gitVerify = payload.commands?.find((command) => command.name === "git verify");
+  expect(gitVerify).toMatchObject({
+    json_kind: "git_verify",
+    json_schema_ref: "git.verify.compact",
+    id_only: false,
+  });
+  const run = payload.commands?.find((command) => command.name === "run");
+  expect(run).toMatchObject({
+    json: false,
+    json_kind: null,
+    json_schema_ref: null,
+    json_example: null,
+    positionals: expect.arrayContaining([
+      expect.objectContaining({ name: "child_command", value: "argv_after_double_dash" }),
+    ]),
+  });
   expect(payload.commands?.some((command) => command.name === "capabilities")).toBe(true);
   expect(payload.commands?.some((command) => command.name === "robot-docs guide")).toBe(true);
   expect(payload.commands?.some((command) => command.name === "doctor")).toBe(true);

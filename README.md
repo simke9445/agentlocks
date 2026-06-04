@@ -22,9 +22,9 @@ tripping over each other: two edit the same file and silently overwrite work, a 
   <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.svg" alt="Terminal demo showing Codex holding src/auth.ts and Claude Code receiving an Agentlocks lock conflict with owner, reason, and next command." width="960">
 </p>
 
-It's **agent-native**: identity comes from the harness, so there are no ids to manage; every
-command speaks JSON; errors name the exact fix; and the contract tells the agent what to run
-next. No daemon, no database, no hosted service. Just files under `.agentlocks/locks/`.
+It's **agent-native**: identity comes from the harness, so there are no ids to manage;
+state-reporting commands speak JSON; errors name the exact fix; and the contract tells the agent
+what to run next. No daemon, no database, no hosted service. Just files under `.agentlocks/locks/`.
 
 ## Install
 
@@ -251,8 +251,9 @@ Code identity is automatic.
 
 ## Command Reference
 
-`agentlocks capabilities --json` is the source of truth for command metadata, flags, exit codes,
-default TTLs, agent identity detection, and next commands.
+`agentlocks capabilities --json` is the source of truth for command metadata, positionals, JSON
+shape refs, `--id-only` line contracts, flags, exit codes, default TTLs, agent identity detection,
+and next commands.
 
 Quote every resource so the shell passes it to Agentlocks literally. Exact paths and glob patterns
 share the same positional list. The CLI treats those quoted arguments as raw resource specs; JSON
@@ -280,7 +281,7 @@ agentlocks acquire 'analyses/trending-baseline/**' --reason "create Phase 0 arti
 | `edit [resources...] -- <cmd>` | Acquire locks, run the command after `--`, and keep the lock | `--reason`, `--ttl-ms`, `--agent-id` | Prints the lock id so you can refresh or release it across turns |
 | `commit [resources...]` | Lock the resources and the Git index, stage and commit only those resources, then release | `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | Pathspec-scoped `git add`/`git commit`; `--keep` retains the file lock |
 | `init` | Initialize or check host support files | `--check`, `--harness auto\|codex\|claude-code`, `--no-commit-hook`, `--json`, `--verbose` | Installs the PreToolUse commit-hook backstop by default; `--no-commit-hook` skips it; `--check` exits 1 on drift |
-| `capabilities` | Print the CLI contract | `--json` | Compact single-line JSON |
+| `capabilities` | Print the CLI contract | `--json` | Compact single-line JSON with command positionals, JSON schema refs, examples, and `--id-only` line shapes |
 | `robot-docs guide` | Print an in-tool agent workflow guide | none | Human text, deterministic golden-tested output |
 | `doctor` | Run read-only health checks | `--json`, `--verbose` | Exits 1 when warnings or errors are present |
 
@@ -299,7 +300,7 @@ harness integrations and recovery from outside the original harness agent.
 When `--json` is present, parse and runtime errors use compact payloads shaped like:
 
 ```json
-{"ok":false,"code":"commander.unknownOption","message":"error: unknown option '--jason'\n(Did you mean --json?)","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
+{"ok":false,"exit_code":1,"code":"commander.unknownOption","message":"error: unknown option '--jason'\n(Did you mean --json?)","details":{"suggestion":{"replace":"--jason","with":"--json","command":"agentlocks status --json"}}}
 ```
 
 ## Configuration

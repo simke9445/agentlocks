@@ -6,6 +6,7 @@ claims are accepted.
 | Requirement | Level | Evidence | Status |
 | --- | --- | --- | --- |
 | Production bundle starts with `#!/usr/bin/env node` and is executable on POSIX | MUST | `tests/performance-contract.test.ts` structural bundle test | Covered |
+| Production bundle and npm dry-run pack stay within accepted post-optimization size budgets | MUST | `tests/performance-contract.test.ts` raw/gzip/pack budget assertions | Covered |
 | npm dry-run package contains only `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/agentlocks.mjs`, and `package.json` | MUST | `tests/performance-contract.test.ts` pack structural test | Covered |
 | Packed shim runs without Bun on `PATH` for help/version/error paths | MUST | `tests/performance-contract.test.ts` shim PATH test | Covered |
 | Source entry and production bundle render identical help, version, capabilities, robot docs, JSON error, and lock JSON contracts | MUST | `tests/goldens/performance/*.json` | Covered |

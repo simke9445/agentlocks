@@ -1,6 +1,6 @@
 # Launch Work Status
 
-Captured: 2026-06-04T17:18Z
+Captured: 2026-06-04T17:38Z
 
 ## Current State
 
@@ -10,10 +10,10 @@ Dependabot, CodeQL, OpenSSF Scorecard, and high-signal README badges.
 
 Latest verified pushed baseline at the time of this status:
 
-- verified commit: `2b83825 Record phase 6 distribution targets`
-- CI: green on `2b83825`
-- CodeQL: green on `2b83825`
-- OpenSSF Scorecard workflow: green on `2b83825`
+- verified commit: `a09a3ea Fix performance size fallback without npm`
+- CI: green on `a09a3ea`
+- CodeQL: green on `a09a3ea`
+- OpenSSF Scorecard workflow: green on `a09a3ea`
 - GitHub community profile: 100%
 - OpenSSF Scorecard API score: 5.8
 - Phase 5 Claude rubric review: 83/100 before the Private Vulnerability Reporting correction;
@@ -21,15 +21,20 @@ Latest verified pushed baseline at the time of this status:
 - Phase 6 Claude rubric review: 65/100 before corrections; `updatedAt` recency and
   surfaces-vs-users blockers corrected in
   `analyses/trending-research/phase6-distribution-targets.md`
-- Phase 6 contact-draft Claude rubric review: 86/100; no blockers for human-review draft inputs;
+- Phase 6 contact-draft Claude rubric review: 89/100; no blockers for human-review draft inputs;
   wording, cadence, and guardrail corrections integrated in `deliverables/launch/awesome-list-pr.md`
   and `deliverables/launch/adjacent-builder-notes.md`
+- Phase 7 launch-war-room Claude rubric review: 74/100 before corrections; npm release-age
+  framing, rollback runbook, owner SLA, metric caveats, and resume conditions integrated in
+  `deliverables/launch/launch-war-room.md`
 - published npm package: `agentlocks@0.8.0`
 - current Socket score for published package: overall 75, supply-chain 75, maintenance 91 shallow /
   89 deep
+- latest npm install path: verified for `agentlocks@0.8.0` with this machine's local
+  `--min-release-age=0` override; public install docs should not include that flag
 
-Local worktree note: another agent currently owns a separate CLI contract edit set. Do not touch
-those locked files from the launch-distribution workstream.
+Local worktree note: another agent currently owns performance baseline artifacts. Do not touch
+`analyses/performance-baseline/*` from the launch workstream.
 
 ## Completed Artifacts
 
@@ -52,6 +57,7 @@ those locked files from the launch-distribution workstream.
 - `deliverables/launch/adjacent-builder-notes.md`
 - `deliverables/launch/email-brief.md`
 - `deliverables/launch/launch-calendar.md`
+- `deliverables/launch/launch-war-room.md`
 - `analyses/trending-trust/phase5-trust-audit.md`
 - `analyses/trending-research/phase6-distribution-targets.md`
 
@@ -59,17 +65,24 @@ those locked files from the launch-distribution workstream.
 
 Current verified commands and services:
 
-- `bun run check` passed locally after the trust-file work: 156 tests, typecheck, and Biome.
+- `bun run check` passed locally after the latest CI fix: 159 tests, typecheck, and Biome.
 - `actionlint .github/workflows/*.yml` passed after adding CodeQL and Scorecard workflows.
-- CI run `26967609352` passed on pushed commit `2b83825`.
-- CodeQL run `26967608951` passed on pushed commit `2b83825`.
-- OpenSSF Scorecard run `26967608947` passed on pushed commit `2b83825`.
+- CI run `26968463356` passed on pushed commit `a09a3ea`.
+- CodeQL run `26968463323` passed on pushed commit `a09a3ea`.
+- OpenSSF Scorecard run `26968463380` passed on pushed commit `a09a3ea`.
 - `gh api repos/simke9445/agentlocks/community/profile` reports `health_percentage: 100`.
 - `curl https://api.scorecard.dev/projects/github.com/simke9445/agentlocks` reports score `5.8`.
 - `socket package score npm agentlocks --markdown` reports current published package score for
   `agentlocks@0.8.0`.
 - `socket scan create --read-only --markdown --repo=agentlocks --branch=main package.json bun.lock`
   finds the local manifests and stops before creating a remote report.
+- `socket --help` confirms local Socket CLI version `1.1.108`, package scoring, read-only scans,
+  npm/npx wrapper controls, and `raw-npm` for wrapper bypasses. Do not paste Socket banners into
+  public artifacts because they include local auth state.
+- Temporary npm install check for `agentlocks@latest` passed with `--min-release-age=0` and
+  `agentlocks --version` output `0.8.0`. `doctor --json` produced expected uninitialized-prefix
+  warnings and is not the install pass criterion.
+- Demo SVG raw GitHub URL returned HTTP 200.
 - `gh api repos/simke9445/agentlocks/private-vulnerability-reporting` reports
   `{"enabled":false}`.
 - Claude review artifact:
@@ -78,6 +91,8 @@ Current verified commands and services:
   `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase6-distribution-rubric-review-20260604T170238Z.md`.
 - Claude Phase 6 contact-draft review artifact:
   `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase6-contact-drafts-rubric-review-20260604T171846Z.md`.
+- Claude Phase 7 launch-war-room review artifact:
+  `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase7-war-room-rubric-review-20260604T173904Z.md`.
 
 ## Human Gates Still Open
 
@@ -93,8 +108,8 @@ Current verified commands and services:
 
 ## Next Execution Step
 
-Proceed to Phase 6 human-gated launch-contact execution:
+Proceed to final Phase 7 verification and human-gated launch decisions:
 
-- maintainer reviews the three high-fit awesome-list PR variants and four scope-check issue drafts;
-- maintainer reviews the adjacent-builder notes and decides which, if any, to use;
+- run `bun run check` and commit the launch-war-room artifact;
+- wait for pushed CI/CodeQL/Scorecard if the commit affects workflows or tracked docs;
 - do not post externally without maintainer approval.

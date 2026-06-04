@@ -270,8 +270,8 @@ agentlocks acquire 'analyses/trending-baseline/**' --reason "create Phase 0 arti
 | `expand [resources...] --lock <id>` | Add quoted repo-relative resources to an existing lock atomically | `--lock`, `--reason`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
 | `refresh [locks...]` | Extend held lock leases, or all of yours with `--mine` | `--lock`, `--mine`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Positional ids and repeatable `--lock` are merged; `--mine` needs a stable identity |
 | `release [locks...]` | Release held locks, or all of yours with `--mine` | `--lock`, `--mine`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--mine` drops every lock you hold (no ids needed); rejects an unstable identity with exit 2 |
-| `status [resources...]` | List active locks, filtered by resources or `--mine` | `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes each lock's status |
-| `board [resources...]` | Who/What/Where overview grouped by agent, with each lease's state | `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
+| `status [resources...]` | List active locks, filtered by resources or `--mine` | `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes normalized resources, owner, reason, status, reclaimability, and next action |
+| `board [resources...]` | Who/What/Where overview grouped by agent, with each lease's state | `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; grouped compact JSON uses the same lock summary shape as `status` |
 | `prune` | Remove reclaimable expired locks | `--dry-run`, `--json`, `--id-only`, `--verbose` | Use `--dry-run` before deleting |
 | `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; use `identify --json` |
 | `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first; `--id-only` prints two lines: the lock id, then a fence token |
@@ -432,7 +432,7 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
 | Symptom | Meaning | Next command |
 | --- | --- | --- |
 | `lock conflict: <path>` | Another active or unreclaimable lock overlaps your requested resource | `agentlocks status <path> --json` |
-| Conflict JSON has `suggested_action: "prune_then_retry"` | All overlapping locks are reclaimable | `agentlocks prune --dry-run --json`, then `agentlocks prune` |
+| Conflict JSON has `suggested_action: "prune_then_retry"` | All overlapping locks are reclaimable; each conflict includes normalized resources, owner, reason, status, reclaimability, and next action | `agentlocks prune --dry-run --json`, then `agentlocks prune` |
 | `Lock <id> is owned by <owner>; current owner is <caller>.` | The current agent id differs from the id that created the lock | Continue from the same harness agent, or use `--agent-id <owner>` for unsupported harness recovery |
 | `At least one lock id is required for refresh.` | `refresh`, `release`, or `git end` needs a lock id | `agentlocks status --id-only` |
 | `Lock resource must be repo-relative` | Absolute paths are rejected | `agentlocks acquire 'path/from/repo/root' --reason "<intent>"` |

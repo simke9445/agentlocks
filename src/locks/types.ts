@@ -101,7 +101,7 @@ export interface LockConflict {
 export interface BoardLock {
   lockId: string;
   status: LockLeaseStatus;
-  resources: string[];
+  resources: LockResource[];
   reason: string;
   when: string;
   reclaimable: boolean;

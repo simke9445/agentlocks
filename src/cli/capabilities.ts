@@ -31,6 +31,7 @@ interface CommandCapability {
   required: string[];
   json_kind: string | null;
   json_schema_ref: string | null;
+  json_alternate_schema_refs?: string[];
   json_example: Record<string, unknown> | null;
   json_unsupported_reason?: string;
   id_only_lines?: string[];
@@ -179,7 +180,8 @@ const JSON_SCHEMAS: Record<string, JsonSchemaCapability> = {
       exit_code: "number exit status",
       lock_count: "number of matching active locks",
       lock_ids: "matching lock ids",
-      locks: "compact lock summaries",
+      locks:
+        "compact lock summaries with lock_id, status, normalized resources, owner, reason, reclaimable, and next",
     },
   },
   "lock.board.compact": {
@@ -191,7 +193,23 @@ const JSON_SCHEMAS: Record<string, JsonSchemaCapability> = {
       exit_code: "number exit status",
       agent_count: "number of agents with matching active locks",
       lock_count: "total matching active locks",
-      agents: "agent-grouped compact lock summaries",
+      agents:
+        "agent_id groups whose locks use the same compact lock summary shape as status --json",
+    },
+  },
+  "lock.conflict.compact": {
+    type: "object",
+    required: ["kind", "exit_code", "suggested_action", "next", "ahead_of", "conflicts"],
+    optional: ["retry_after_ms"],
+    properties: {
+      kind: "literal conflict",
+      exit_code: "literal 3",
+      suggested_action: "retry_later or prune_then_retry",
+      next: "machine-readable next action",
+      ahead_of: "number of incumbent locks ahead of this request",
+      retry_after_ms: "honest wait floor when known",
+      conflicts:
+        "blocking lock summaries with lock_id, owner, reason, status, normalized resources, reclaimable, and next",
     },
   },
   "lock.prune.compact": {
@@ -376,6 +394,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           exit_code: 0,
           lock_id: "lock_20260604T120000Z_abc12345",
         }),
+        json_alternate_schema_refs: ["lock.conflict.compact"],
         id_only_lines: ["lock_id"],
         exit_codes: [0, 2, 3],
         next: [
@@ -401,6 +420,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           exit_code: 0,
           lock_id: "lock_20260604T120000Z_abc12345",
         }),
+        json_alternate_schema_refs: ["lock.conflict.compact"],
         id_only_lines: ["lock_id"],
         exit_codes: [0, 2, 3],
         next: ["agentlocks refresh <lock_id>", "agentlocks release <lock_id>"],
@@ -464,7 +484,17 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           exit_code: 0,
           lock_count: 1,
           lock_ids: ["lock_20260604T120000Z_abc12345"],
-          locks: [{ lock_id: "lock_20260604T120000Z_abc12345", status: "held" }],
+          locks: [
+            {
+              lock_id: "lock_20260604T120000Z_abc12345",
+              status: "held",
+              resources: [{ kind: "path", value: "src/app.ts" }],
+              owner: { agent_id: "codex:thread" },
+              reason: "edit app",
+              reclaimable: false,
+              next: "refresh_or_release_if_owner",
+            },
+          ],
         }),
         id_only_lines: ["lock_id", "..."],
         exit_codes: [0, 2],
@@ -487,7 +517,22 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           exit_code: 0,
           agent_count: 1,
           lock_count: 1,
-          agents: [{ agent_id: "codex:thread", locks: [{ lock_id: "lock_..." }] }],
+          agents: [
+            {
+              agent_id: "codex:thread",
+              locks: [
+                {
+                  lock_id: "lock_20260604T120000Z_abc12345",
+                  status: "held",
+                  resources: [{ kind: "path", value: "src/app.ts" }],
+                  owner: { agent_id: "codex:thread" },
+                  reason: "edit app",
+                  reclaimable: false,
+                  next: "refresh_or_release_if_owner",
+                },
+              ],
+            },
+          ],
         }),
         id_only_lines: ["lock_id", "..."],
         exit_codes: [0, 2],
@@ -559,6 +604,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           git_token: "g7",
           refreshed_lock_ids: ["lock_20260604T120000Z_abc12345"],
         }),
+        json_alternate_schema_refs: ["lock.conflict.compact"],
         id_only_lines: ["git_lock_id", "git_token"],
         exit_codes: [0, 2, 3],
         next: [

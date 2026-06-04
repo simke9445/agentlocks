@@ -669,7 +669,42 @@ test("status --json carries each lock's classification", async () => {
     expect(status.json).toMatchObject({
       kind: "status",
       lock_count: 1,
-      locks: [{ lock_id: acquired.text.trim(), status: "reclaimable" }],
+      locks: [
+        {
+          lock_id: acquired.text.trim(),
+          status: "reclaimable",
+          resources: [{ kind: "path", value: "s.ts" }],
+          owner: { agent_id: "session-a" },
+          reason: "edit",
+          reclaimable: true,
+          next: "prune_then_retry",
+        },
+      ],
+    });
+    const board = await executeLockCommand(
+      { name: "board", resourceSpecs: [], json: true, idOnly: false },
+      { cwd: workspace, config, registryOptions },
+    );
+    expect(board.json).toMatchObject({
+      kind: "board",
+      agent_count: 1,
+      lock_count: 1,
+      agents: [
+        {
+          agent_id: "session-a",
+          locks: [
+            {
+              lock_id: acquired.text.trim(),
+              status: "reclaimable",
+              resources: [{ kind: "path", value: "s.ts" }],
+              owner: { agent_id: "session-a" },
+              reason: "edit",
+              reclaimable: true,
+              next: "prune_then_retry",
+            },
+          ],
+        },
+      ],
     });
   });
 });
@@ -707,7 +742,24 @@ test("conflict json carries ahead_of and an honest retry-after floor", async () 
       { cwd: workspace, config, registryOptions },
     );
     expect(conflict.exitCode).toBe(3);
-    expect(conflict.json).toMatchObject({ kind: "conflict", ahead_of: 1, retry_after_ms: 600_000 });
+    expect(conflict.json).toMatchObject({
+      kind: "conflict",
+      ahead_of: 1,
+      retry_after_ms: 600_000,
+      suggested_action: "retry_later",
+      next: "work_elsewhere_then_retry",
+      conflicts: [
+        {
+          lock_id: expect.stringMatching(/^lock_/),
+          owner: { agent_id: "session-a" },
+          reason: "edit",
+          status: "held",
+          resources: [{ kind: "path", value: "m.ts" }],
+          reclaimable: false,
+          next: "refresh_or_release_if_owner",
+        },
+      ],
+    });
   });
 });
 

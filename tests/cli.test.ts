@@ -431,6 +431,7 @@ test("capabilities json is compact and machine-readable", async () => {
       flags?: unknown;
       json_kind?: unknown;
       json_schema_ref?: unknown;
+      json_alternate_schema_refs?: unknown;
       json_example?: Record<string, unknown> | null;
       json_unsupported_reason?: unknown;
       id_only_lines?: unknown;
@@ -469,6 +470,7 @@ test("capabilities json is compact and machine-readable", async () => {
     ],
     json_kind: "acquired",
     json_schema_ref: "lock.acquired.compact",
+    json_alternate_schema_refs: ["lock.conflict.compact"],
     json_example: expect.objectContaining({ kind: "acquired", exit_code: 0 }),
     id_only_lines: ["lock_id"],
   });

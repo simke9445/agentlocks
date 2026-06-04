@@ -411,15 +411,10 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         kind: "conflict",
         exit_code: result.exitCode,
         suggested_action: result.suggestedAction,
+        next: conflictJsonNext(result.suggestedAction),
         ahead_of: result.aheadOf ?? 0,
         ...(result.minRetryAfterMs !== undefined ? { retry_after_ms: result.minRetryAfterMs } : {}),
-        conflicts: (result.conflicts ?? []).map((conflict) => ({
-          lock_id: conflict.lock.lockId,
-          owner: lockOwnerAgentId(conflict.lock.owner),
-          reason: conflict.lock.reason,
-          status: conflict.status,
-          resources: conflict.resources.map((resource) => resource.value),
-        })),
+        conflicts: (result.conflicts ?? []).map(compactConflictSummary),
       };
     case "status":
       return {
@@ -427,10 +422,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         exit_code: result.exitCode,
         lock_count: result.locks?.length ?? 0,
         lock_ids: (result.locks ?? []).map((item) => item.lock.lockId),
-        locks: (result.locks ?? []).map((item) => ({
-          lock_id: item.lock.lockId,
-          status: item.status,
-        })),
+        locks: (result.locks ?? []).map(compactLockSummary),
       };
     case "board": {
       const agents = result.board ?? [];
@@ -440,13 +432,8 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         agent_count: agents.length,
         lock_count: agents.reduce((total, agent) => total + agent.locks.length, 0),
         agents: agents.map((agent) => ({
-          agent: agent.agentId,
-          locks: agent.locks.map((lock) => ({
-            lock_id: lock.lockId,
-            status: lock.status,
-            resources: lock.resources,
-            reclaimable: lock.reclaimable,
-          })),
+          agent_id: agent.agentId,
+          locks: agent.locks.map((lock) => compactBoardLockSummary(agent.agentId, lock)),
         })),
       };
     }
@@ -468,6 +455,72 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         harness_scope: result.owner?.harnessScope ?? null,
       };
   }
+}
+
+function compactLockSummary(item: ClassifiedLock): Record<string, unknown> {
+  return {
+    lock_id: item.lock.lockId,
+    status: item.status,
+    resources: item.lock.resources,
+    owner: compactOwner(item.lock.owner),
+    reason: item.lock.reason,
+    reclaimable: item.status === "reclaimable",
+    next: lockStatusNext(item.status),
+  };
+}
+
+function compactBoardLockSummary(
+  agentId: string,
+  lock: BoardAgent["locks"][number],
+): Record<string, unknown> {
+  return {
+    lock_id: lock.lockId,
+    status: lock.status,
+    resources: lock.resources,
+    owner: { agent_id: agentId },
+    reason: lock.reason,
+    reclaimable: lock.reclaimable,
+    next: lockStatusNext(lock.status),
+  };
+}
+
+function compactConflictSummary(conflict: LockConflict): Record<string, unknown> {
+  return {
+    lock_id: conflict.lock.lockId,
+    owner: compactOwner(conflict.lock.owner),
+    reason: conflict.lock.reason,
+    status: conflict.status,
+    resources: conflict.resources,
+    reclaimable: conflict.status === "reclaimable",
+    next: lockStatusNext(conflict.status),
+  };
+}
+
+function compactOwner(owner: LockConflict["lock"]["owner"]): Record<string, unknown> {
+  return {
+    agent_id: lockOwnerAgentId(owner),
+    source: lockOwnerSource(owner),
+    harness: owner.harness ?? null,
+    harness_scope: owner.harnessScope ?? null,
+  };
+}
+
+function lockStatusNext(status: LockConflict["status"]): string {
+  switch (status) {
+    case "held":
+      return "refresh_or_release_if_owner";
+    case "expired-live":
+    case "expired-unknown":
+      return "wait_then_retry";
+    case "reclaimable":
+      return "prune_then_retry";
+    case "released":
+      return "retry";
+  }
+}
+
+function conflictJsonNext(action: string): string {
+  return action === "prune_then_retry" ? "prune_then_retry" : "work_elsewhere_then_retry";
 }
 
 function publicJson(value: unknown): unknown {
@@ -665,9 +718,9 @@ function renderBoard(board: BoardAgent[]): string {
       `agent ${agent.agentId}`,
       ...agent.locks.map(
         (lock) =>
-          `- ${lock.resources.join(", ")} (${lock.reason}) | ${lock.status}, ${lock.when}${
-            lock.reclaimable ? " -> prune, then acquire" : ""
-          }`,
+          `- ${lock.resources.map((resource) => resource.value).join(", ")} (${lock.reason}) | ${
+            lock.status
+          }, ${lock.when}${lock.reclaimable ? " -> prune, then acquire" : ""}`,
       ),
     ].join("\n"),
   );

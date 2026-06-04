@@ -21,6 +21,10 @@ contract change in place with no migration layer.
 - **`capabilities --json` is now a v2 self-describing command contract.** Each command advertises
   positionals, compact JSON kind/schema refs, examples, compact-vs-verbose notes, and exact
   `--id-only` output lines where supported.
+- **Compact lock JSON is richer without exposing full internal records.** `status`, `board`, and
+  conflict payloads now include normalized resources, owner, reason, status, reclaimability, and a
+  machine-readable next action so agents can decide whether to refresh, release, wait, prune, or
+  retry.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages

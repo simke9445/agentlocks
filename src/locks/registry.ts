@@ -484,7 +484,7 @@ export class FileLockRegistry {
       rows.push({
         lockId: item.lock.lockId,
         status: item.status,
-        resources: item.lock.resources.map((resource) => resource.value),
+        resources: item.lock.resources,
         reason: item.lock.reason,
         when: boardWhen(item, now, this.unknownLivenessGraceMs),
         reclaimable: item.status === "reclaimable",

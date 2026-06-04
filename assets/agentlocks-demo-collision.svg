@@ -27,12 +27,13 @@
 
   <text x="684" y="210" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#9ca3af">$ agentlocks acquire src/auth.ts \</text>
   <text x="684" y="240" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#9ca3af">  --reason "Claude reviews same login file"</text>
-  <rect x="684" y="318" width="474" height="214" rx="12" fill="#2a1417" stroke="#f97373"/>
+  <rect x="684" y="318" width="474" height="226" rx="12" fill="#2a1417" stroke="#f97373"/>
   <text x="708" y="354" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#fecaca">lock conflict: src/auth.ts</text>
   <text x="708" y="390" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#fecaca">held by: codex:&lt;session&gt;</text>
   <text x="708" y="426" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#fecaca">reason: Codex refactors login flow</text>
   <text x="708" y="462" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#fecaca">status: held</text>
-  <text x="708" y="498" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#fde68a">next: work on unrelated unlocked files, then retry</text>
+  <text x="708" y="496" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#fde68a">next: work on unrelated unlocked files,</text>
+  <text x="762" y="526" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#fde68a">then retry</text>
 
   <rect x="212" y="596" width="856" height="42" rx="21" fill="#16263d" stroke="#3b82f6"/>
   <text x="640" y="623" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700" fill="#dbeafe">Second agent gets owner, reason, and next command instead of a silent overwrite.</text>

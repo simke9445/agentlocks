@@ -43,6 +43,10 @@ runs under your own Node — no per-platform binary, no embedded runtime. It nee
 first release that loads a TypeScript `agentlocks.config.ts` natively. (Bun is only needed to build
 from source.) Then run `agentlocks init` once inside each repo you want to coordinate.
 
+The published npm package is a 5-file tarball with SLSA provenance attestations and no runtime
+dependencies. Release automation publishes the exact tarball that passed Linux glibc, Linux musl,
+macOS, Windows, and Node 22.18 / 22.22 / 24.16 conformance.
+
 ## See it in 20 seconds
 
 ```bash

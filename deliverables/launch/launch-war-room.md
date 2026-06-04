@@ -4,18 +4,18 @@ Status: draft. This is an internal launch-day operating sheet. It does not appro
 opening issues, changing repository settings, publishing npm, or approving a GitHub release
 environment.
 
-Captured: 2026-06-04T17:38Z
+Captured: 2026-06-04T17:46Z
 
 ## Current Verified State
 
 Repository:
 
 - GitHub repo: `https://github.com/simke9445/agentlocks`
-- Verified pushed commit: `a09a3ea Fix performance size fallback without npm`
-- CI: green on `a09a3ea`
-- CodeQL: green on `a09a3ea`
-- OpenSSF Scorecard workflow: green on `a09a3ea`
-- OpenSSF Scorecard API: `5.8` on commit `a09a3ea`
+- Verified pushed commit before this document correction: `e0dc1ff Add phase 7 launch war room`
+- CI: in progress on `e0dc1ff` at capture time
+- CodeQL: green on `e0dc1ff`
+- OpenSSF Scorecard workflow: green on `e0dc1ff`
+- OpenSSF Scorecard API: `5.8` on commit `e0dc1ff`
 - OpenSSF Scorecard is not a public flex yet; treat it as an internal improvement tracker until the
   score is materially stronger.
 - Stars / forks / watchers: `2 / 0 / 0`
@@ -28,9 +28,12 @@ Repository:
 npm:
 
 - Published latest: `agentlocks@0.8.0`
+- Runtime requirement: `agentlocks@0.8.0` declares `engines.node >=22.18`; every clean-install
+  smoke test and support reply should check Node before debugging CLI behavior.
 - npm downloads, last week: `661` from 2026-05-27 through 2026-06-02
-- Caveat: downloads this early can be dominated by registry mirrors, automation, and CI. Use deltas
-  after known human posts, not absolute counts, as the launch signal.
+- Caveat: the trailing-week window starts before the package's first publish on 2026-06-01, and
+  downloads this early can be dominated by registry mirrors, automation, and CI. Use deltas after
+  known human posts, not absolute counts, as the launch signal.
 - npm package still declares runtime dependency `commander@14.0.3`
 - npm provenance is present for `agentlocks@0.8.0`
 - Local npm install verification passed with this machine's release-age override. The latest
@@ -85,8 +88,9 @@ These require a maintainer decision before public launch.
 - External posting approval: all HN, X, Reddit, Product Hunt, newsletter, Discord/Slack, PR, issue,
   and discussion activity is human-gated.
 - GitHub Discussions is disabled. Either enable it or create a launch feedback issue before posting.
-- Private Vulnerability Reporting is disabled. Enable it if the private advisory path in
-  `SECURITY.md` should be live before launch.
+- Private Vulnerability Reporting is disabled while `SECURITY.md` points reporters at GitHub
+  Security Advisories. Enable PVR before broader security scrutiny, or replace the template with a
+  working private intake path before launch.
 - Next npm release is not published. If Socket/package optics matter for launch, publish a new
   dependency-minimized release and re-run Socket first.
 - Social preview image is already enabled, but settings upload remains a maintainer-controlled
@@ -106,6 +110,7 @@ gh run list --branch main --limit 6 --json name,headSha,status,conclusion,url
 gh repo view simke9445/agentlocks --json stargazerCount,forkCount,watchers,hasDiscussionsEnabled,usesCustomOpenGraphImage,securityPolicyUrl
 npm view agentlocks version dist-tags dist dependencies --json
 npm config get before
+node --version # must be >=22.18 for agentlocks@0.8.0
 socket package score npm agentlocks --markdown
 curl -fsSL https://api.npmjs.org/downloads/point/last-week/agentlocks
 curl -I -L -s https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.svg | sed -n '1,12p'
@@ -115,6 +120,7 @@ Latest npm install check:
 
 ```bash
 tmp="$(mktemp -d /tmp/agentlocks-npm-install-check.XXXXXX)"
+node --version # must be >=22.18
 npm install --min-release-age=0 --prefix "$tmp" agentlocks@latest --ignore-scripts --no-audit --no-fund
 "$tmp/node_modules/.bin/agentlocks" --version
 "$tmp/node_modules/.bin/agentlocks" --help
@@ -122,6 +128,15 @@ npm install --min-release-age=0 --prefix "$tmp" agentlocks@latest --ignore-scrip
 
 Use `--min-release-age=0` only to bypass this machine's local npm age policy. Do not put that flag
 in public install instructions.
+
+Clean-room check to run on a machine/container without this workstation's npm `before` override and
+with Node >=22.18:
+
+```bash
+npm install -g agentlocks@0.8.0
+agentlocks --version
+agentlocks --help
+```
 
 ## Metric Watch Commands
 
@@ -154,6 +169,8 @@ meaningful and not vanity-only.
 - Do not ask for stars.
 - Do not imply affiliation with OpenAI, Anthropic, Claude Code, Codex, or adjacent projects.
 - Do not mention a target score, Socket improvement, or security setting unless verified live.
+- Do not include `AGENTLOCKS_AGENT_ID=...` prefixes in public examples; Codex and Claude Code
+  identities are auto-assigned in this setup.
 
 ## Launch-Day Triage Labels
 
@@ -201,12 +218,22 @@ path locks, conflict output, and Git-index verification. I am tracking integrati
 separately so the core contract stays small.
 ```
 
+Node version mismatch:
+
+```text
+Agentlocks currently requires Node >=22.18 because the CLI loads TypeScript config files through
+the native runtime path. Please check `node --version` first; if it is older, upgrade Node and retry
+the same command before debugging Agentlocks itself.
+```
+
 ## Stop Conditions
 
 Pause launch amplification if any of these happen:
 
 - `bun run check` or main CI goes red.
 - A credible lock correctness bug is reported.
+- A credible security report arrives while Private Vulnerability Reporting is disabled or the
+  private reporting path is unclear.
 - npm latest install fails on a clean machine for any reason other than the user's own release-age
   policy on a release that is at least 7 days old. Until 2026-06-10T14:51:00Z, `agentlocks@0.8.0`
   is under 7 days old, so security-conscious age-policy users can fail to install; do not push
@@ -217,8 +244,8 @@ Pause launch amplification if any of these happen:
   outreach.
 
 Resume launch amplification only after the stop condition is cleared, CI is green again if code
-changed, the npm install check has been re-run, and the response owner has a fresh reply window
-blocked.
+changed, any security-reporting gap is resolved, the npm install check has been re-run on Node
+>=22.18, and the response owner has a fresh reply window blocked.
 
 ## Incident & Rollback Runbook
 

@@ -1,6 +1,6 @@
 # Launch Work Status
 
-Captured: 2026-06-04T17:38Z
+Captured: 2026-06-04T17:46Z
 
 ## Current State
 
@@ -10,10 +10,10 @@ Dependabot, CodeQL, OpenSSF Scorecard, and high-signal README badges.
 
 Latest verified pushed baseline at the time of this status:
 
-- verified commit: `a09a3ea Fix performance size fallback without npm`
-- CI: green on `a09a3ea`
-- CodeQL: green on `a09a3ea`
-- OpenSSF Scorecard workflow: green on `a09a3ea`
+- verified pushed commit before this status correction: `e0dc1ff Add phase 7 launch war room`
+- CI: in progress on `e0dc1ff` at capture time
+- CodeQL: green on `e0dc1ff`
+- OpenSSF Scorecard workflow: green on `e0dc1ff`
 - GitHub community profile: 100%
 - OpenSSF Scorecard API score: 5.8
 - Phase 5 Claude rubric review: 83/100 before the Private Vulnerability Reporting correction;
@@ -25,13 +25,14 @@ Latest verified pushed baseline at the time of this status:
   wording, cadence, and guardrail corrections integrated in `deliverables/launch/awesome-list-pr.md`
   and `deliverables/launch/adjacent-builder-notes.md`
 - Phase 7 launch-war-room Claude rubric review: 74/100 before corrections; npm release-age
-  framing, rollback runbook, owner SLA, metric caveats, and resume conditions integrated in
-  `deliverables/launch/launch-war-room.md`
+  framing, Node >=22.18 runtime gating, PVR/security-reporting gating, rollback runbook, owner SLA,
+  metric caveats, and resume conditions integrated in `deliverables/launch/launch-war-room.md`
 - published npm package: `agentlocks@0.8.0`
+- published runtime requirement: Node `>=22.18`
 - current Socket score for published package: overall 75, supply-chain 75, maintenance 91 shallow /
   89 deep
-- latest npm install path: verified for `agentlocks@0.8.0` with this machine's local
-  `--min-release-age=0` override; public install docs should not include that flag
+- latest npm install path: verified for `agentlocks@0.8.0` with Node >=22.18 and this machine's
+  local `--min-release-age=0` override; public install docs should not include that flag
 
 Local worktree note: another agent currently owns performance baseline artifacts. Do not touch
 `analyses/performance-baseline/*` from the launch workstream.
@@ -82,6 +83,7 @@ Current verified commands and services:
 - Temporary npm install check for `agentlocks@latest` passed with `--min-release-age=0` and
   `agentlocks --version` output `0.8.0`. `doctor --json` produced expected uninitialized-prefix
   warnings and is not the install pass criterion.
+- Node runtime requirement is verified from `package.json`: `engines.node >=22.18`.
 - Demo SVG raw GitHub URL returned HTTP 200.
 - `gh api repos/simke9445/agentlocks/private-vulnerability-reporting` reports
   `{"enabled":false}`.
@@ -110,6 +112,6 @@ Current verified commands and services:
 
 Proceed to final Phase 7 verification and human-gated launch decisions:
 
-- run `bun run check` and commit the launch-war-room artifact;
-- wait for pushed CI/CodeQL/Scorecard if the commit affects workflows or tracked docs;
+- run `bun run check` and commit these launch-war-room corrections;
+- wait for pushed CI/CodeQL/Scorecard on the correction commit;
 - do not post externally without maintainer approval.

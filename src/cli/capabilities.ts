@@ -435,7 +435,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
         id_only: true,
         verbose: true,
         positionals: LOCK_IDS_OPTIONAL,
-        flags: ["--lock", "--mine", ...TTL_FLAGS, ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
+        flags: ["--mine", ...TTL_FLAGS, ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         ...jsonOutput("lock.updated.compact", "refreshed", {
           kind: "refreshed",
@@ -456,7 +456,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
         id_only: true,
         verbose: true,
         positionals: LOCK_IDS_OPTIONAL,
-        flags: ["--lock", "--mine", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
+        flags: ["--mine", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         ...jsonOutput("lock.updated.compact", "released", {
           kind: "released",
@@ -623,7 +623,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
         id_only: true,
         verbose: true,
         positionals: GIT_LOCK_IDS_REQUIRED,
-        flags: ["--lock", "--release-lock", "--git-token", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
+        flags: ["--release-lock", "--git-token", ...AGENT_FLAGS, ...LOCK_OUTPUT_FLAGS],
         required: ["lock-id"],
         ...jsonOutput("lock.updated.compact", "released", {
           kind: "released",

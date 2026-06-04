@@ -206,6 +206,52 @@ test("parse lock git helpers for combined commit coordination", () => {
   });
 });
 
+test("parse rejects removed generic lock-id flags", () => {
+  expect(() => parseCliArgs(["refresh", "--lock", "lock_file"])).toThrow("unknown option '--lock'");
+  expect(() => parseCliArgs(["release", "--lock", "lock_file"])).toThrow("unknown option '--lock'");
+  expect(() => parseCliArgs(["git", "end", "--lock", "lock_git"])).toThrow(
+    "unknown option '--lock'",
+  );
+
+  expect(parseCliArgs(["expand", "src/config.ts", "--lock", "lock_file"]).command).toEqual({
+    kind: "lock",
+    command: {
+      name: "expand",
+      lockId: "lock_file",
+      resourceSpecs: ["src/config.ts"],
+      ttlMs: null,
+      agentId: null,
+      json: false,
+      idOnly: false,
+    },
+  });
+  expect(
+    parseCliArgs(["git", "begin", "--reason", "commit", "--refresh-lock", "lock_file"]).command,
+  ).toEqual({
+    kind: "lock",
+    command: {
+      name: "git-begin",
+      reason: "commit",
+      ttlMs: null,
+      agentId: null,
+      refreshLockIds: ["lock_file"],
+      json: false,
+      idOnly: false,
+    },
+  });
+  expect(parseCliArgs(["git", "end", "lock_git", "--release-lock", "lock_file"]).command).toEqual({
+    kind: "lock",
+    command: {
+      name: "git-end",
+      lockIds: ["lock_git"],
+      releaseLockIds: ["lock_file"],
+      agentId: null,
+      json: false,
+      idOnly: false,
+    },
+  });
+});
+
 test("parse prune dry-run command", () => {
   const parsed = parseCliArgs(["prune", "--dry-run", "--json"]);
   expect(parsed.command?.kind).toBe("lock");
@@ -514,6 +560,22 @@ test("capabilities json is compact and machine-readable", async () => {
     json_schema_ref: "git.verify.compact",
     id_only: false,
   });
+  expect(payload.commands?.find((command) => command.name === "refresh")?.flags).not.toContain(
+    "--lock",
+  );
+  expect(payload.commands?.find((command) => command.name === "release")?.flags).not.toContain(
+    "--lock",
+  );
+  expect(payload.commands?.find((command) => command.name === "git end")?.flags).not.toContain(
+    "--lock",
+  );
+  expect(payload.commands?.find((command) => command.name === "expand")?.flags).toContain("--lock");
+  expect(payload.commands?.find((command) => command.name === "git begin")?.flags).toContain(
+    "--refresh-lock",
+  );
+  expect(payload.commands?.find((command) => command.name === "git end")?.flags).toContain(
+    "--release-lock",
+  );
   const run = payload.commands?.find((command) => command.name === "run");
   expect(run).toMatchObject({
     json: false,

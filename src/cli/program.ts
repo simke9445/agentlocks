@@ -43,14 +43,12 @@ interface LockExpandOptions extends LockOutputOptions {
 }
 
 interface LockRefreshOptions extends LockOutputOptions {
-  lock?: string[];
   ttlMs?: number;
   agentId?: string;
   mine?: boolean;
 }
 
 interface LockReleaseOptions extends LockOutputOptions {
-  lock?: string[];
   agentId?: string;
   mine?: boolean;
 }
@@ -82,7 +80,6 @@ interface LockGitBeginOptions extends LockOutputOptions {
 }
 
 interface LockGitEndOptions extends LockOutputOptions {
-  lock?: string[];
   releaseLock?: string[];
   agentId?: string;
   gitToken?: string;
@@ -240,8 +237,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
     program
       .command("refresh")
       .description("Refresh a held lock lease.")
-      .argument("[locks...]", "Lock ids; equivalent to repeatable --lock.")
-      .option("--lock <lock_id>", "Lock id; repeatable.", collectValues, [])
+      .argument("[locks...]", "Lock ids.")
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
       .option("--mine", "Refresh every lock you hold (no ids); requires a stable identity.")
@@ -253,7 +249,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       command: withLockVerbose(
         {
           name: "refresh",
-          lockIds: mergeLockIds(options.lock, locks),
+          lockIds: locks,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
           ...(options.mine ? { mine: true } : {}),
@@ -269,8 +265,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
     program
       .command("release")
       .description("Release a held lock.")
-      .argument("[locks...]", "Lock ids; equivalent to repeatable --lock.")
-      .option("--lock <lock_id>", "Lock id; repeatable.", collectValues, [])
+      .argument("[locks...]", "Lock ids.")
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
       .option("--mine", "Release every lock you hold (no ids); requires a stable identity.")
       .allowExcessArguments(false),
@@ -281,7 +276,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       command: withLockVerbose(
         {
           name: "release",
-          lockIds: mergeLockIds(options.lock, locks),
+          lockIds: locks,
           agentId: options.agentId ?? null,
           ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
@@ -431,8 +426,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
     git
       .command("end")
       .description("Release the synthetic @git/index lock.")
-      .argument("[locks...]", "Git/index lock ids; equivalent to repeatable --lock.")
-      .option("--lock <lock_id>", "Git/index lock id; repeatable.", collectValues, [])
+      .argument("[locks...]", "Git/index lock ids.")
       .option(
         "--release-lock <lock_id>",
         "Held file lock to release after git lock; repeatable.",
@@ -449,7 +443,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       command: withLockVerbose(
         {
           name: "git-end",
-          lockIds: mergeLockIds(options.lock, locks),
+          lockIds: locks,
           releaseLockIds: options.releaseLock ?? [],
           agentId: options.agentId ?? null,
           ...(options.gitToken !== undefined ? { gitToken: options.gitToken } : {}),
@@ -697,10 +691,6 @@ function parseInitHarness(value: string): InitHarness {
 function parsePathspecMode(value: string): "only" | "include" {
   if (value === "only" || value === "include") return value;
   throw new InvalidArgumentError(`Expected only or include, got ${value}`);
-}
-
-function mergeLockIds(optionLocks: string[] | undefined, positional: string[]): string[] {
-  return [...new Set([...(positional ?? []), ...(optionLocks ?? [])])];
 }
 
 function splitWrappedChild(argv: string[]): { effectiveArgv: string[]; childArgv?: string[] } {

@@ -28,6 +28,9 @@ contract change in place with no migration layer.
 - **`--id-only` line contracts are now conformance-tested.** Successful id-only lock commands have
   pinned line counts and ordering, including `git begin` returning the Git lock id before the fence
   token.
+- **Lock-id inputs are now canonical positionals.** `refresh`, `release`, and `git end` no longer
+  accept the generic repeatable `--lock`; keep passing lock ids positionally. Role-specific
+  `expand --lock`, `git begin --refresh-lock`, and `git end --release-lock` remain.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages

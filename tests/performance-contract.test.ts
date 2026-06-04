@@ -273,7 +273,12 @@ test("production bundle and package dry-run preserve structural contract", async
     "dist/agentlocks.mjs",
     "package.json",
   ]);
-  expect(files.find((file) => file.path === "dist/agentlocks.mjs")?.mode).toBe(0o755);
+  const bundleMode = files.find((file) => file.path === "dist/agentlocks.mjs")?.mode;
+  if (process.platform === "win32") {
+    expect(bundleMode).toBe(0o644);
+  } else {
+    expect(bundleMode).toBe(0o755);
+  }
 });
 
 test("liveness probe is gated by overlap and expiry", async () => {
@@ -525,12 +530,29 @@ async function installPackedShim(): Promise<CliInvocation> {
 
   const nodeOnlyPath = path.join(tempRoot, "node-only-bin");
   await mkdir(nodeOnlyPath, { recursive: true });
-  await symlink(process.execPath, path.join(nodeOnlyPath, "node"));
+  const nodeName = process.platform === "win32" ? "node.exe" : "node";
+  await symlink(process.execPath, path.join(nodeOnlyPath, nodeName));
+  const systemPaths =
+    process.platform === "win32"
+      ? [
+          process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32") : "",
+          process.env.SystemRoot ?? "",
+        ]
+      : ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  const envPath = [nodeOnlyPath, ...systemPaths.filter(Boolean)].join(path.delimiter);
+  if (process.platform === "win32") {
+    return {
+      name: "shim",
+      command: process.env.ComSpec ?? "cmd.exe",
+      argsPrefix: ["/d", "/s", "/c", path.join(prefix, "node_modules", ".bin", "agentlocks.cmd")],
+      env: { PATH: envPath },
+    };
+  }
   return {
     name: "shim",
     command: path.join(prefix, "node_modules", ".bin", "agentlocks"),
     argsPrefix: [],
-    env: { PATH: `${nodeOnlyPath}:/usr/bin:/bin:/usr/sbin:/sbin` },
+    env: { PATH: envPath },
   };
 }
 

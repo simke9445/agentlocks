@@ -1,6 +1,6 @@
 # Launch Work Status
 
-Captured: 2026-06-04T17:46Z
+Captured: 2026-06-04T17:49Z
 
 ## Current State
 
@@ -10,8 +10,8 @@ Dependabot, CodeQL, OpenSSF Scorecard, and high-signal README badges.
 
 Latest verified pushed baseline at the time of this status:
 
-- verified pushed commit before this status correction: `e0dc1ff Add phase 7 launch war room`
-- CI: in progress on `e0dc1ff` at capture time
+- latest verified pushed commit before this status correction: `e0dc1ff Add phase 7 launch war room`
+- CI: green on `e0dc1ff`
 - CodeQL: green on `e0dc1ff`
 - OpenSSF Scorecard workflow: green on `e0dc1ff`
 - GitHub community profile: 100%
@@ -68,9 +68,9 @@ Current verified commands and services:
 
 - `bun run check` passed locally after the latest CI fix: 159 tests, typecheck, and Biome.
 - `actionlint .github/workflows/*.yml` passed after adding CodeQL and Scorecard workflows.
-- CI run `26968463356` passed on pushed commit `a09a3ea`.
-- CodeQL run `26968463323` passed on pushed commit `a09a3ea`.
-- OpenSSF Scorecard run `26968463380` passed on pushed commit `a09a3ea`.
+- CI run `26969170403` passed on pushed commit `e0dc1ff`.
+- CodeQL run `26969170383` passed on pushed commit `e0dc1ff`.
+- OpenSSF Scorecard run `26969170368` passed on pushed commit `e0dc1ff`.
 - `gh api repos/simke9445/agentlocks/community/profile` reports `health_percentage: 100`.
 - `curl https://api.scorecard.dev/projects/github.com/simke9445/agentlocks` reports score `5.8`.
 - `socket package score npm agentlocks --markdown` reports current published package score for
@@ -112,6 +112,8 @@ Current verified commands and services:
 
 Proceed to final Phase 7 verification and human-gated launch decisions:
 
-- run `bun run check` and commit these launch-war-room corrections;
-- wait for pushed CI/CodeQL/Scorecard on the correction commit;
+- commit these launch-war-room corrections and wait for pushed CI/CodeQL/Scorecard on the
+  correction commit;
+- keep Phase 8 post-launch compounding parked until an approved public launch creates real launch
+  feedback, issues, discussions, traffic, or user questions to compound;
 - do not post externally without maintainer approval.

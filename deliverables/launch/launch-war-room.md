@@ -4,15 +4,15 @@ Status: draft. This is an internal launch-day operating sheet. It does not appro
 opening issues, changing repository settings, publishing npm, or approving a GitHub release
 environment.
 
-Captured: 2026-06-04T17:46Z
+Captured: 2026-06-04T17:49Z
 
 ## Current Verified State
 
 Repository:
 
 - GitHub repo: `https://github.com/simke9445/agentlocks`
-- Verified pushed commit before this document correction: `e0dc1ff Add phase 7 launch war room`
-- CI: in progress on `e0dc1ff` at capture time
+- Latest verified pushed commit before this document correction: `e0dc1ff Add phase 7 launch war room`
+- CI: green on `e0dc1ff`
 - CodeQL: green on `e0dc1ff`
 - OpenSSF Scorecard workflow: green on `e0dc1ff`
 - OpenSSF Scorecard API: `5.8` on commit `e0dc1ff`

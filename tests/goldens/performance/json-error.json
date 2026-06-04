@@ -1,0 +1,17 @@
+{
+  "exit_code": 1,
+  "stderr": "",
+  "stdout": {
+    "code": "commander.unknownOption",
+    "details": {
+      "suggestion": {
+        "command": "agentlocks status --json",
+        "replace": "--jason",
+        "with": "--json"
+      }
+    },
+    "exit_code": 1,
+    "message": "unknown option '--jason'\n(Did you mean --json?)",
+    "ok": false
+  }
+}

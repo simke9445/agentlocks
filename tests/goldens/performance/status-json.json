@@ -1,0 +1,31 @@
+{
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": {
+    "exit_code": 0,
+    "kind": "status",
+    "lock_count": 1,
+    "lock_ids": ["[lock-id]"],
+    "locks": [
+      {
+        "lock_id": "[lock-id]",
+        "next": "refresh_or_release_if_owner",
+        "owner": {
+          "agent_id": "perf-contract-agent",
+          "harness": null,
+          "harness_scope": null,
+          "source": "env:AGENTLOCKS_AGENT_ID"
+        },
+        "reason": "golden",
+        "reclaimable": false,
+        "resources": [
+          {
+            "kind": "path",
+            "value": "target.txt"
+          }
+        ],
+        "status": "held"
+      }
+    ]
+  }
+}

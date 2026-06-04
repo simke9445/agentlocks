@@ -1,0 +1,33 @@
+{
+  "exit_code": 3,
+  "stderr": "",
+  "stdout": {
+    "ahead_of": 1,
+    "conflicts": [
+      {
+        "lock_id": "[lock-id]",
+        "next": "refresh_or_release_if_owner",
+        "owner": {
+          "agent_id": "perf-contract-other",
+          "harness": null,
+          "harness_scope": null,
+          "source": "env:AGENTLOCKS_AGENT_ID"
+        },
+        "reason": "incumbent",
+        "reclaimable": false,
+        "resources": [
+          {
+            "kind": "path",
+            "value": "target.txt"
+          }
+        ],
+        "status": "held"
+      }
+    ],
+    "exit_code": 3,
+    "kind": "conflict",
+    "next": "work_elsewhere_then_retry",
+    "retry_after_ms": "[retry-after-ms]",
+    "suggested_action": "retry_later"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": {
+    "exit_code": 0,
+    "kind": "released",
+    "lock_id": "[lock-id]"
+  }
+}

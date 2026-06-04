@@ -1,0 +1,11 @@
+{
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": {
+    "exit_code": 0,
+    "git_token": "[git-token]",
+    "kind": "git-begin",
+    "lock_id": "[lock-id]",
+    "refreshed_lock_ids": []
+  }
+}

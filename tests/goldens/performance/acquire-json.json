@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": {
+    "exit_code": 0,
+    "kind": "acquired",
+    "lock_id": "[lock-id]"
+  }
+}

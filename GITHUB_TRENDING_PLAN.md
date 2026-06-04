@@ -345,9 +345,12 @@ Recommended badges:
 - npm version.
 - npm downloads.
 - CI.
-- OpenSSF Scorecard after it exists.
+- CodeQL.
+- Node runtime floor.
 - license.
 - provenance/trusted publishing only if the badge is reliable and not visually noisy.
+- OpenSSF Scorecard only after the public score is strong enough to help trust; at a live score of
+  `5.8`, keep it as an internal tracker instead of a README badge.
 
 README rules:
 

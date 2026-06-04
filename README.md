@@ -10,8 +10,8 @@
   <a href="https://www.npmjs.com/package/agentlocks"><img src="https://img.shields.io/npm/v/agentlocks?color=blue&label=npm" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/agentlocks"><img src="https://img.shields.io/npm/dw/agentlocks" alt="npm weekly downloads"></a>
   <a href="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml"><img src="https://github.com/simke9445/agentlocks/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/simke9445/agentlocks"><img src="https://api.scorecard.dev/projects/github.com/simke9445/agentlocks/badge" alt="OpenSSF Scorecard"></a>
-  <img src="https://img.shields.io/badge/language-TypeScript-3178c6" alt="TypeScript">
+  <a href="https://github.com/simke9445/agentlocks/actions/workflows/codeql.yml"><img src="https://github.com/simke9445/agentlocks/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D22.18-339933" alt="Node >= 22.18">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 

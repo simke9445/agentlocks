@@ -226,15 +226,17 @@ function renderCommandResults(
   }
   const isBatch = results.length !== 1;
   const firstResult = results[0];
-  const emptyJson = { kind: "batch", exitCode, results: [] };
-  const fullJson = isBatch ? { kind: "batch", exitCode, results } : (firstResult ?? emptyJson);
+  const emptyJson = { kind: "batch", exit_code: exitCode, results: [] };
+  const fullJson = isBatch
+    ? publicJson({ kind: "batch", exitCode, results })
+    : publicJson(firstResult ?? { kind: "batch", exitCode, results: [] });
   const json =
     command.verbose === true
       ? fullJson
       : isBatch
         ? {
             kind: "batch",
-            exitCode,
+            exit_code: exitCode,
             results: results.map((result) => compactLockJson(result)),
           }
         : firstResult
@@ -264,7 +266,7 @@ function renderGitBegin(
     .filter((id): id is string => Boolean(id));
   const json = {
     kind: "git-begin",
-    exitCode,
+    exit_code: exitCode,
     lock_id: lockId,
     git_token: gitToken,
     refreshed_lock_ids: refreshedLockIds,
@@ -286,7 +288,7 @@ function renderGitVerify(results: LockOperationResult[]): {
   const report = results[0]?.verify;
   const json = report
     ? gitVerifyJson(report)
-    : { ok: true, command: "git verify", state: "no_staged_changes" };
+    : { ok: true, exit_code: 0, command: "git verify", state: "no_staged_changes" };
   const stderr = report ? gitVerifyFindings(report) : undefined;
   const text = report ? gitVerifySummary(report) : "git verify: no staged changes";
   // Advisory: always exit 0.
@@ -308,6 +310,7 @@ function gitVerifyCoveredJson(entry: GitVerifyReport["covered"][number]): Record
 function gitVerifyJson(report: GitVerifyReport): Record<string, unknown> {
   return {
     ok: report.ok,
+    exit_code: 0,
     command: "git verify",
     caller: {
       agent_id: report.caller.agentId,
@@ -376,7 +379,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
     case "acquired": {
       const base = {
         kind: result.kind,
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         lock_id: result.lock?.lockId ?? null,
       };
       if (result.reclaimed && result.reclaimed.length > 0) {
@@ -389,24 +392,24 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
       if (result.affectedLocks) {
         return {
           kind: result.kind,
-          exitCode: result.exitCode,
+          exit_code: result.exitCode,
           lock_count: result.affectedLocks.length,
           lock_ids: result.affectedLocks.map((lock) => lock.lockId),
         };
       }
       return {
         kind: result.kind,
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         lock_id: result.lock?.lockId ?? null,
       };
     case "verified":
       return result.verify
         ? gitVerifyJson(result.verify)
-        : { kind: "verified", exitCode: result.exitCode };
+        : { kind: "verified", exit_code: result.exitCode };
     case "conflict":
       return {
         kind: "conflict",
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         suggested_action: result.suggestedAction,
         ahead_of: result.aheadOf ?? 0,
         ...(result.minRetryAfterMs !== undefined ? { retry_after_ms: result.minRetryAfterMs } : {}),
@@ -421,7 +424,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
     case "status":
       return {
         kind: "status",
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         lock_count: result.locks?.length ?? 0,
         lock_ids: (result.locks ?? []).map((item) => item.lock.lockId),
         locks: (result.locks ?? []).map((item) => ({
@@ -433,7 +436,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
       const agents = result.board ?? [];
       return {
         kind: "board",
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         agent_count: agents.length,
         lock_count: agents.reduce((total, agent) => total + agent.locks.length, 0),
         agents: agents.map((agent) => ({
@@ -450,7 +453,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
     case "pruned":
       return {
         kind: "pruned",
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         dry_run: Boolean(result.dryRun),
         pruned_count: result.pruned?.length ?? 0,
         pruned_lock_ids: (result.pruned ?? []).map((lock) => lock.lockId),
@@ -458,13 +461,23 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
     case "identified":
       return {
         kind: "identified",
-        exitCode: result.exitCode,
+        exit_code: result.exitCode,
         agent_id: result.owner ? lockOwnerAgentId(result.owner) : null,
         source: result.owner ? lockOwnerSource(result.owner) : null,
         harness: result.owner?.harness ?? null,
         harness_scope: result.owner?.harnessScope ?? null,
       };
   }
+}
+
+function publicJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(publicJson);
+  if (value === null || typeof value !== "object") return value;
+  const output: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    output[key === "exitCode" ? "exit_code" : key] = publicJson(child);
+  }
+  return output;
 }
 
 function renderResults(

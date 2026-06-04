@@ -140,6 +140,11 @@ export function renderDoctorText(result: DoctorResult): string {
   ].join("\n");
 }
 
+export function doctorResultJson(result: DoctorResult): Record<string, unknown> {
+  const { exitCode, ...rest } = result;
+  return { ...rest, exit_code: exitCode };
+}
+
 function renderNext(check: DoctorCheck): string {
   return check.next ? `\nnext: ${check.next}` : "";
 }

@@ -15,6 +15,9 @@ contract change in place with no migration layer.
 - **Raw resource input is now named distinctly from normalized resources internally.** Command and
   registry inputs use `resourceSpecs` for shell-provided strings, while persisted lock records and
   JSON lock summaries keep `resources` for normalized `{kind,value}` entries.
+- **Public JSON now uses `exit_code` instead of `exitCode`.** Agent-facing `--json` output, including
+  compact, verbose, init, doctor, and parser-error payloads, uses the snake_case field with no
+  compatibility alias.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages

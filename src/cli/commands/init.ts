@@ -16,11 +16,17 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
     commitHook: options.commitHook !== false,
   });
   if (options.json) {
-    console.log(JSON.stringify(options.verbose ? result : compactInitResult(result, options)));
+    console.log(JSON.stringify(initResultJson(result, options)));
   } else {
     console.log(renderInitResult(result));
   }
   if (result.exitCode !== 0) process.exitCode = result.exitCode;
+}
+
+function initResultJson(result: InitResult, options: InitCommandOptions): Record<string, unknown> {
+  if (!options.verbose) return compactInitResult(result, options);
+  const { exitCode, ...rest } = result;
+  return { ...rest, exit_code: exitCode };
 }
 
 function compactInitResult(
@@ -30,7 +36,7 @@ function compactInitResult(
   return {
     kind: "init",
     ok: result.ok,
-    exitCode: result.exitCode,
+    exit_code: result.exitCode,
     check: options.check,
     harness: result.harness,
     resolved_harness: result.resolvedHarness,

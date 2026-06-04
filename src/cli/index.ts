@@ -2,7 +2,7 @@ import { agentlocksCapabilities, renderCapabilitiesText } from "./capabilities";
 import { runInitCommand } from "./commands/init";
 import { lockExitCode, runLockCommand } from "./commands/lock";
 import { runWrappedCommand } from "./commands/wrapped";
-import { renderDoctorText, runDoctor } from "./doctor";
+import { doctorResultJson, renderDoctorText, runDoctor } from "./doctor";
 import { helpText, parseCliArgs } from "./program";
 import { renderRobotDocsGuide } from "./robot-docs";
 import { maybePrintUpdateNotice } from "./update-notice";
@@ -38,7 +38,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       case "doctor": {
         const result = await runDoctor(parsed.command.options);
         console.log(
-          parsed.command.options.json ? JSON.stringify(result) : renderDoctorText(result),
+          parsed.command.options.json
+            ? JSON.stringify(doctorResultJson(result))
+            : renderDoctorText(result),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
         return;
@@ -49,7 +51,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const suggestion = cliErrorSuggestion(error, message, argv);
     const exitCode = lockExitCode(error) ?? 1;
     if (argv.includes("--json")) {
-      console.log(JSON.stringify(cliErrorPayload(error, message, suggestion)));
+      console.log(JSON.stringify(cliErrorPayload(error, message, exitCode, suggestion)));
     } else {
       console.error(`agentlocks error: ${renderCliErrorMessage(message, suggestion)}`);
     }
@@ -74,20 +76,24 @@ function lockErrorNext(error: unknown): string | null {
 function cliErrorPayload(
   error: unknown,
   message: string,
+  exitCode: number,
   suggestion: CliErrorSuggestion | null = null,
 ): {
   ok: false;
+  exit_code: number;
   code: string;
   message: string;
   details?: unknown;
 } {
   const payload: {
     ok: false;
+    exit_code: number;
     code: string;
     message: string;
     details?: unknown;
   } = {
     ok: false,
+    exit_code: exitCode,
     code: cliErrorCode(error),
     message,
   };

@@ -39,6 +39,17 @@ async function runCli(
     });
 }
 
+function expectNoExitCodeKey(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) expectNoExitCodeKey(item);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  expect(record.exitCode).toBeUndefined();
+  for (const child of Object.values(record)) expectNoExitCodeKey(child);
+}
+
 test("help lists top-level lock commands", () => {
   const help = helpText();
   expect(help).toContain("acquire");
@@ -268,7 +279,10 @@ test("json parse errors are machine-readable", async () => {
   expect(result.stderr).toBe("");
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
   const payload = JSON.parse(result.stdout) as Record<string, unknown>;
+  expectNoExitCodeKey(payload);
   expect(payload.ok).toBe(false);
+  expect(payload.exit_code).toBe(result.code);
+  expect(payload.exitCode).toBeUndefined();
   expect(payload.code).toBe("commander.invalidArgument");
   expect(payload.message).toEqual(expect.stringContaining("--ttl-ms"));
 });
@@ -287,10 +301,15 @@ test("unknown flag json errors include suggestion details", async () => {
   expect(result.stderr).toBe("");
   const payload = JSON.parse(result.stdout) as {
     ok?: unknown;
+    exit_code?: unknown;
+    exitCode?: unknown;
     code?: unknown;
     details?: { suggestion?: Record<string, unknown> };
   };
+  expectNoExitCodeKey(payload);
   expect(payload.ok).toBe(false);
+  expect(payload.exit_code).toBe(result.code);
+  expect(payload.exitCode).toBeUndefined();
   expect(payload.code).toBe("commander.unknownOption");
   expect(payload.details?.suggestion).toEqual({
     replace: "--jason",
@@ -305,9 +324,14 @@ test("unknown command json errors suggest an exact corrected command", async () 
   expect(result.stderr).toBe("");
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
   const payload = JSON.parse(result.stdout) as {
+    exit_code?: unknown;
+    exitCode?: unknown;
     code?: unknown;
     details?: { suggestion?: Record<string, unknown> };
   };
+  expectNoExitCodeKey(payload);
+  expect(payload.exit_code).toBe(result.code);
+  expect(payload.exitCode).toBeUndefined();
   expect(payload.code).toBe("commander.unknownCommand");
   expect(payload.details?.suggestion).toEqual({
     replace: "stats",
@@ -582,6 +606,8 @@ test("init check json is compact by default with verbose full output", async () 
     const payload = JSON.parse(compact.stdout) as {
       kind?: unknown;
       ok?: unknown;
+      exit_code?: unknown;
+      exitCode?: unknown;
       check?: unknown;
       harness?: unknown;
       resolved_harness?: unknown;
@@ -590,8 +616,11 @@ test("init check json is compact by default with verbose full output", async () 
       changes?: Array<Record<string, unknown>>;
       root?: unknown;
     };
+    expectNoExitCodeKey(payload);
     expect(payload.kind).toBe("init");
     expect(payload.ok).toBe(false);
+    expect(payload.exit_code).toBe(compact.code);
+    expect(payload.exitCode).toBeUndefined();
     expect(payload.check).toBe(true);
     expect(payload.harness).toBe("auto");
     expect(payload.resolved_harness).toBe("codex");
@@ -605,6 +634,9 @@ test("init check json is compact by default with verbose full output", async () 
 
     const verbose = await runCli(["init", "--check", "--json", "--verbose"], workspace);
     const verbosePayload = JSON.parse(verbose.stdout) as Record<string, unknown>;
+    expectNoExitCodeKey(verbosePayload);
+    expect(verbosePayload.exit_code).toBe(verbose.code);
+    expect(verbosePayload.exitCode).toBeUndefined();
     expect(verbosePayload.root).toBe(await realpath(workspace));
     expect(verbosePayload.changes).toEqual(
       expect.arrayContaining([expect.objectContaining({ message: "lock directory is required" })]),
@@ -645,7 +677,15 @@ test("install command is not accepted", async () => {
   const result = await runCli(["install", "--json"]);
   expect(result.code).toBe(1);
   expect(result.stderr).toBe("");
-  const payload = JSON.parse(result.stdout) as { code?: unknown; details?: unknown };
+  const payload = JSON.parse(result.stdout) as {
+    exit_code?: unknown;
+    exitCode?: unknown;
+    code?: unknown;
+    details?: unknown;
+  };
+  expectNoExitCodeKey(payload);
+  expect(payload.exit_code).toBe(result.code);
+  expect(payload.exitCode).toBeUndefined();
   expect(payload.code).toBe("commander.unknownCommand");
 });
 
@@ -653,7 +693,15 @@ test("init rejects unsupported harness values", async () => {
   const result = await runCli(["init", "--harness", "both", "--json"]);
   expect(result.code).toBe(1);
   expect(result.stderr).toBe("");
-  const payload = JSON.parse(result.stdout) as { code?: unknown; message?: unknown };
+  const payload = JSON.parse(result.stdout) as {
+    exit_code?: unknown;
+    exitCode?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+  expectNoExitCodeKey(payload);
+  expect(payload.exit_code).toBe(result.code);
+  expect(payload.exitCode).toBeUndefined();
   expect(payload.code).toBe("commander.invalidArgument");
   expect(payload.message).toEqual(expect.stringContaining("Expected auto, codex, or claude-code"));
 });
@@ -670,11 +718,16 @@ test("doctor json reports read-only health checks", async () => {
       kind?: unknown;
       schema_version?: unknown;
       ok?: unknown;
+      exit_code?: unknown;
+      exitCode?: unknown;
       checks?: Array<{ id?: unknown; status?: unknown; next?: unknown; details?: unknown }>;
     };
+    expectNoExitCodeKey(payload);
     expect(payload.kind).toBe("doctor");
     expect(payload.schema_version).toBe(1);
     expect(payload.ok).toBe(false);
+    expect(payload.exit_code).toBe(result.code);
+    expect(payload.exitCode).toBeUndefined();
     expect(payload.checks?.some((check) => check.id === "init" && check.status === "warn")).toBe(
       true,
     );
@@ -682,8 +735,13 @@ test("doctor json reports read-only health checks", async () => {
 
     const verbose = await runCli(["doctor", "--json", "--verbose"], workspace);
     const verbosePayload = JSON.parse(verbose.stdout) as {
+      exit_code?: unknown;
+      exitCode?: unknown;
       checks?: Array<{ id?: unknown; details?: unknown }>;
     };
+    expectNoExitCodeKey(verbosePayload);
+    expect(verbosePayload.exit_code).toBe(result.code);
+    expect(verbosePayload.exitCode).toBeUndefined();
     expect(verbosePayload.checks?.find((check) => check.id === "init")?.details).toBeDefined();
   } finally {
     await rm(workspace, { recursive: true, force: true });

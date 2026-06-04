@@ -80,7 +80,7 @@ Identity just works, with no setup and no flags:
 
 ```text
 $ agentlocks identify --json
-{"kind":"identified","exitCode":0,"agent_id":"claude-code:0fd188d5-…","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code","harness_scope":"session"}
+{"kind":"identified","exit_code":0,"agent_id":"claude-code:0fd188d5-...","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code","harness_scope":"session"}
 ```
 
 Agentlocks even brings its own harness integration: `agentlocks init --harness claude-code`

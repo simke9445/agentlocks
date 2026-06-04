@@ -330,9 +330,10 @@ test("lock command output is compact by default and renders agentlocks commands"
     expect(acquired.exitCode).toBe(0);
     expect(acquired.json).toMatchObject({
       kind: "acquired",
-      exitCode: 0,
+      exit_code: 0,
       lock_id: expect.stringMatching(/^lock_/),
     });
+    expectNoExitCodeKey(acquired.json);
     expect((acquired.json as { lock?: unknown }).lock).toBeUndefined();
     expect(acquired.text).toContain("lock acquired:");
     expect(acquired.text).not.toContain("resources:");
@@ -750,6 +751,17 @@ test("multi-incumbent conflict render leads with the binding constraint", async 
     expect(liveIndex).toBeLessThan(reclaimableIndex);
   });
 });
+
+function expectNoExitCodeKey(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) expectNoExitCodeKey(item);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  expect(record.exitCode).toBeUndefined();
+  for (const child of Object.values(record)) expectNoExitCodeKey(child);
+}
 
 function testRegistry(
   workspace: string,

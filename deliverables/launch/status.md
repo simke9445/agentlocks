@@ -23,19 +23,24 @@ Captured: 2026-06-04T15:46Z
 
 ## Current Gate
 
-Phase 2 local correctness is green on current `HEAD`.
+Phase 2 local correctness and the launch-plan artifacts are green on pushed `main`.
 
 The earlier parallel source/test refactor landed as:
 
 - `94cd3f7 Unify resource lock arguments`
 
+The launch-plan artifact commit landed as:
+
+- `b9d1b2d docs: add GitHub trending launch plan`
+
 Current public-launch gates:
 
-- local launch artifacts still need to be committed;
-- local `main` is ahead of `origin/main` by 1 before the launch-artifact commit;
-- pushed CI has not yet proven the local SHA;
-- no recorded collision demo exists yet;
-- README top-fold demo integration is still pending.
+- Phase 3 static collision demo files still need to be committed and pushed;
+- pushed CI has not yet proven the Phase 3 demo SHA;
+- static collision demo asset is embedded in the local README;
+- local SVG render verification passed; GitHub README render verification remains pending;
+- animated GIF/video remains optional;
+- dependency cleanup files are under a separate lock and are not part of the Phase 3 demo commit.
 
 ## Verification
 
@@ -59,17 +64,22 @@ Current verification:
 - Claude rubric review completed in
   `/Users/djsimovic/.codex/artifacts/claude-agentlocks-phase2-rubric-review-20260604T154121Z.md`
   with score 74/100 and recommendation "proceed only after conditions."
+- Phase 3 static demo transcript was verified locally and converted into
+  `assets/agentlocks-demo-collision.svg`.
+- Local `sips` render verification produced a 1280x720 PNG from the SVG, and the rendered terminal
+  panes were legible.
 
 ## Next Steps
 
 1. Decide whether a literal crash/SIGKILL CLI test is worth adding before launch, or explicitly keep
    it as a fast-follow because the current launch copy does not claim literal crash recovery.
-2. Acquire a launch-artifact lock and the Git-index lock.
+2. Keep the dependency cleanup lock separate from Phase 3 demo staging.
 3. Stage only:
-   - `GITHUB_TRENDING_PLAN.md`
-   - `analyses/trending-baseline/`
-   - `analyses/trending-correctness/`
-   - `deliverables/launch/`
-4. Commit the launch-plan artifacts.
-5. Continue with Phase 3 demo media.
-6. After README/demo changes land, push and confirm CI on the pushed SHA.
+   - `README.md`
+   - `assets/agentlocks-demo-collision.svg`
+   - `deliverables/launch/demo-script.md`
+   - `deliverables/launch/status.md`
+4. Commit the Phase 3 demo artifacts.
+5. Push and confirm CI on the pushed SHA.
+6. Render-check the README image on GitHub.
+7. Optionally record an animated GIF/video if a suitable terminal renderer is installed.

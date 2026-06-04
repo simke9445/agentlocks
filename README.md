@@ -18,6 +18,10 @@ tripping over each other: two edit the same file and silently overwrite work, a 
 `auth.ts`" note goes stale and never clears, and two `git add` runs race for the same index.
 **Agentlocks turns those collision points into explicit, scriptable leases.**
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/simke9445/agentlocks/main/assets/agentlocks-demo-collision.svg" alt="Terminal demo showing Codex holding src/auth.ts and Claude Code receiving an Agentlocks lock conflict with owner, reason, and next command." width="960">
+</p>
+
 It's **agent-native**: identity comes from the harness, so there are no ids to manage; every
 command speaks JSON; errors name the exact fix; and the contract tells the agent what to run
 next. No daemon, no database, no hosted service. Just files under `.agentlocks/locks/`.

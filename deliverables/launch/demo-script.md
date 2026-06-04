@@ -1,7 +1,16 @@
 # Agentlocks Demo Script
 
-Status: draft. Do not record or publish until Phase 2 is green and the final commands have been
-re-run against the current release.
+Status: Phase 3 static visual complete; animated GIF/video remains optional.
+
+Current asset:
+
+- `assets/agentlocks-demo-collision.svg`
+- grounded in a real 2026-06-04 command transcript from a temp Git repo, with the public command
+  text normalized to rely on automatic Codex and Claude Code identity
+- embedded near the README top fold
+
+Do not publish an animated recording until the final commands have been re-run against the current
+release.
 
 ## Demo Goal
 
@@ -14,6 +23,29 @@ Show the whole idea in under 10 seconds:
 
 The demo proves coordination between cooperating agents. It must not imply hard enforcement against
 tools that ignore Agentlocks.
+
+## Current Demo Transcript
+
+Codex and Claude Code assign lock identity automatically. The public demo therefore omits explicit
+`AGENTLOCKS_AGENT_ID=...` prefixes.
+
+```text
+$ agentlocks acquire src/auth.ts --reason "Codex refactors login flow" --id-only
+lock_20260604T155313Z_139a36cf
+
+$ agentlocks acquire src/auth.ts --reason "Claude reviews same login file"
+lock conflict: src/auth.ts
+held by: codex:<session>
+reason: Codex refactors login flow
+status: held, expires 2026-06-04T16:03:13Z
+next: work on unrelated unlocked files, then retry
+
+$ agentlocks release lock_20260604T155313Z_139a36cf --id-only
+lock_20260604T155313Z_139a36cf
+```
+
+The SVG normalizes the automatically assigned owner to `codex:<session>` and omits the exact expiry
+timestamp to keep the asset timeless.
 
 ## Recording Setup
 

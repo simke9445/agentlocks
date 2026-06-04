@@ -202,7 +202,7 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "This repository uses Agentlocks advisory locks for multi-agent editing.",
     "",
     "- Acquire locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
-    `- Use \`${acquire}\` and keep requested resources narrow. Quote every resource; glob-like resources are inferred from \`*\`, \`?\`, or bracket classes.`,
+    `- Use \`${acquire}\` and keep requested resource specs narrow. Quote every resource spec; glob-like specs are inferred from \`*\`, \`?\`, or bracket classes.`,
     `- Expand before touching newly needed resources with \`${expand}\`; do not edit outside the held lock set.`,
     `- Refresh before edit batches and after long tests with \`${refresh}\`.`,
     "- **To commit, prefer the one-command path:**",

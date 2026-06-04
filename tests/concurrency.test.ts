@@ -26,13 +26,13 @@ async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<
 function acquire(
   workspace: string,
   config: ReturnType<typeof resolveAgentlocksConfig>,
-  resources: string[],
+  resourceSpecs: string[],
   agentId: string,
 ) {
   return executeLockCommand(
     {
       name: "acquire",
-      resources,
+      resourceSpecs,
       reason: "race",
       ttlMs: 600_000,
       agentId,
@@ -53,7 +53,7 @@ test("concurrent same-path acquires: exactly one wins (mutex mutual exclusion)",
     expect(results.filter((r) => r.exitCode === 0)).toHaveLength(1);
     expect(results.filter((r) => r.exitCode === 3)).toHaveLength(K - 1);
     const status = await executeLockCommand(
-      { name: "status", resources: [], json: true, idOnly: false },
+      { name: "status", resourceSpecs: [], json: true, idOnly: false },
       { cwd: workspace, config },
     );
     expect((status.json as { lock_count: number }).lock_count).toBe(1);
@@ -71,7 +71,7 @@ test("concurrent distinct-path acquires all succeed without torn state", async (
     );
     expect(results.every((r) => r.exitCode === 0)).toBe(true);
     const status = await executeLockCommand(
-      { name: "status", resources: [], json: true, idOnly: false },
+      { name: "status", resourceSpecs: [], json: true, idOnly: false },
       { cwd: workspace, config },
     );
     expect((status.json as { lock_count: number }).lock_count).toBe(K);
@@ -175,7 +175,7 @@ test("a stale mutex owned by a DEAD pid is reclaimed", async () => {
       mutexRetry: { attempts: 4, sleepMs: 5 },
     });
     const result = await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit",
       agentId: "agent-a",
     });
@@ -195,7 +195,7 @@ test("a stale mutex owned by a LIVE same-host pid is NOT reclaimed (waiter fails
       mutexRetry: { attempts: 4, sleepMs: 5 },
     });
     await expect(
-      registry.acquire({ resources: ["a.ts"], reason: "edit", agentId: "agent-a" }),
+      registry.acquire({ resourceSpecs: ["a.ts"], reason: "edit", agentId: "agent-a" }),
     ).rejects.toThrow("Timed out");
   });
 });
@@ -212,7 +212,7 @@ test("a stale mutex owned by a DIFFERENT host is reclaimed (foreign liveness unv
       mutexRetry: { attempts: 4, sleepMs: 5 },
     });
     const result = await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit",
       agentId: "agent-a",
     });
@@ -289,7 +289,7 @@ test("randomized concurrent churn stays consistent and still mutually exclusive 
       // No op crashed; the registry is never wedged or corrupted.
       expect(results.every((r) => typeof r.exitCode === "number")).toBe(true);
       const status = await executeLockCommand(
-        { name: "status", resources: [], json: true, idOnly: false },
+        { name: "status", resourceSpecs: [], json: true, idOnly: false },
         { cwd: workspace, config },
       );
       const snapshot = status.json as { lock_count: number; lock_ids: string[] };

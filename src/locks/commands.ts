@@ -104,7 +104,7 @@ export async function executeLockCommand(
     case "acquire":
       results.push(
         await registry.acquire({
-          resources: command.resources,
+          resourceSpecs: command.resourceSpecs,
           reason: command.reason,
           ttlMs: command.ttlMs,
           agentId: command.agentId,
@@ -118,7 +118,7 @@ export async function executeLockCommand(
       results.push(
         await registry.expand({
           lockId: command.lockId,
-          resources: command.resources,
+          resourceSpecs: command.resourceSpecs,
           ttlMs: command.ttlMs,
           agentId: command.agentId,
         }),
@@ -144,12 +144,18 @@ export async function executeLockCommand(
       break;
     case "status":
       results.push(
-        await registry.status({ resources: command.resources }, command.mine ? { mine: true } : {}),
+        await registry.status(
+          { resourceSpecs: command.resourceSpecs },
+          command.mine ? { mine: true } : {},
+        ),
       );
       break;
     case "board":
       results.push(
-        await registry.board({ resources: command.resources }, command.mine ? { mine: true } : {}),
+        await registry.board(
+          { resourceSpecs: command.resourceSpecs },
+          command.mine ? { mine: true } : {},
+        ),
       );
       break;
     case "prune":

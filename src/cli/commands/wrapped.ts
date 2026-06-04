@@ -6,7 +6,7 @@ import { executeLockCommand, type LockCommandOutput, verifyGitFence } from "../.
 const FENCE_KEEPALIVE_INTERVAL_MS = 5_000;
 
 interface WrappedBase {
-  resources: string[];
+  resourceSpecs: string[];
   reason: string;
   ttlMs: number | null;
   agentId: string | null;
@@ -158,13 +158,13 @@ async function runCommit(
       if (pre.exitCode !== 0) fenceLost = pre.stderr ?? "@git/index fence lost";
     }
     if (!fenceLost) {
-      gitCode = await spawnChild(["git", "add", "--", ...command.resources], cwd, (child) => {
+      gitCode = await spawnChild(["git", "add", "--", ...command.resourceSpecs], cwd, (child) => {
         activeChild = child;
       });
       if (gitCode === 0 && !fenceLost) {
         const args = ["git", "commit"];
         if (command.message !== null) args.push("-m", command.message);
-        args.push("--", ...command.resources);
+        args.push("--", ...command.resourceSpecs);
         gitCode = await spawnChild(args, cwd, (child) => {
           activeChild = child;
         });
@@ -215,7 +215,7 @@ function acquire(command: WrappedCommand, cwd: string): Promise<LockCommandOutpu
   return executeLockCommand(
     {
       name: "acquire",
-      resources: command.resources,
+      resourceSpecs: command.resourceSpecs,
       reason: command.reason,
       ttlMs: command.ttlMs,
       agentId: command.agentId,

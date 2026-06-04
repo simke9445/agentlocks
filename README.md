@@ -255,7 +255,8 @@ Code identity is automatic.
 default TTLs, agent identity detection, and next commands.
 
 Quote every resource so the shell passes it to Agentlocks literally. Exact paths and glob patterns
-share the same positional list:
+share the same positional list. The CLI treats those quoted arguments as raw resource specs; JSON
+lock records use `resources` for the normalized `{kind,value}` entries stored in each lease.
 
 ```bash
 agentlocks acquire 'a.ts' 'b.ts' 'src/**/*.ts' --reason "edit files"
@@ -394,7 +395,7 @@ bin/agentlocks.ts
         -> lock command handlers
           -> loadAgentlocksConfig
           -> FileLockRegistry
-            -> normalize resources/@git/index
+            -> normalize resource specs/@git/index
             -> .agentlocks/locks/.mutex
             -> .agentlocks/locks/active/<lock_id>.json
             -> .agentlocks/locks/events.jsonl

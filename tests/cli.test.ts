@@ -151,7 +151,7 @@ test("parse lock acquire command", () => {
   if (parsed.command?.kind !== "lock") throw new Error("expected lock command");
   expect(parsed.command.command).toEqual({
     name: "acquire",
-    resources: ["src/cli/program.ts", "src/locks/**/*.ts"],
+    resourceSpecs: ["src/cli/program.ts", "src/locks/**/*.ts"],
     reason: "add lock parser",
     ttlMs: 1000,
     agentId: "owner-1",

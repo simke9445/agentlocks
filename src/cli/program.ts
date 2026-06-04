@@ -187,14 +187,14 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
         "Reclaim overlapping locks first when every conflict is already reclaimable, then acquire in one command.",
       )
       .allowExcessArguments(false),
-  ).action((resources: string[], _options: LockAcquireOptions, command: Command) => {
+  ).action((resourceSpecs: string[], _options: LockAcquireOptions, command: Command) => {
     const options = command.opts<LockAcquireOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "acquire",
-          resources,
+          resourceSpecs,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
@@ -217,7 +217,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
       .allowExcessArguments(false),
-  ).action((resources: string[], _options: LockExpandOptions, command: Command) => {
+  ).action((resourceSpecs: string[], _options: LockExpandOptions, command: Command) => {
     const options = command.opts<LockExpandOptions>();
     onCommand?.({
       kind: "lock",
@@ -225,7 +225,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
         {
           name: "expand",
           lockId: options.lock,
-          resources,
+          resourceSpecs,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
           json: Boolean(options.json),
@@ -299,14 +299,14 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
-  ).action((resources: string[], _options: LockStatusOptions, command: Command) => {
+  ).action((resourceSpecs: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "status",
-          resources,
+          resourceSpecs,
           ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
@@ -325,14 +325,14 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
-  ).action((resources: string[], _options: LockStatusOptions, command: Command) => {
+  ).action((resourceSpecs: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "board",
-          resources,
+          resourceSpecs,
           ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
@@ -527,13 +527,13 @@ function addWrappedCommands(program: Command, onCommand?: (command: CliCommand) 
     .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
     .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
     .allowExcessArguments(false)
-    .action((resources: string[], _options: WrappedCommitOptions, command: Command) => {
+    .action((resourceSpecs: string[], _options: WrappedCommitOptions, command: Command) => {
       const options = command.opts<WrappedCommitOptions>();
       onCommand?.({
         kind: "wrapped",
         command: {
           name: "commit",
-          resources,
+          resourceSpecs,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
@@ -558,13 +558,13 @@ function addWrappedRun(
     .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
     .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
     .allowExcessArguments(false)
-    .action((resources: string[], _options: WrappedRunOptions, command: Command) => {
+    .action((resourceSpecs: string[], _options: WrappedRunOptions, command: Command) => {
       const options = command.opts<WrappedRunOptions>();
       onCommand?.({
         kind: "wrapped",
         command: {
           name,
-          resources,
+          resourceSpecs,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,

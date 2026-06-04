@@ -7,6 +7,9 @@ Inspect:
 - agentlocks status --json
 - agentlocks identify --json
 
+Terminology:
+- Command-line <resources...> are raw resource specs; JSON lock records use normalized resources.
+
 Lock before edits:
 - agentlocks acquire <resources...> --reason "<intent>" --id-only
 - agentlocks expand <resources...> --lock <lock_id>

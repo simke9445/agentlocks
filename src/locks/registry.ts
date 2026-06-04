@@ -55,7 +55,7 @@ export interface FileLockRegistryOptions {
 }
 
 export interface LockResourceRequest {
-  resources?: string[];
+  resourceSpecs?: string[];
   includeGitIndex?: boolean;
 }
 
@@ -676,7 +676,7 @@ export class FileLockRegistry {
   ): Promise<LockResource[]> {
     const resources = await normalizeLockResources({
       cwd: this.cwd,
-      resources: request.resources ?? [],
+      resourceSpecs: request.resourceSpecs ?? [],
       includeGitIndex: Boolean(request.includeGitIndex),
     });
     if (requireAny && resources.length === 0) {

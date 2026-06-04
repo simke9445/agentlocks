@@ -21,7 +21,7 @@ test("normalizes safe repo-relative path and glob resources", async () => {
 
     const resources = await normalizeLockResources({
       cwd: workspace,
-      resources: [
+      resourceSpecs: [
         "./src/existing.ts",
         "src/new.ts",
         "future/output.md",
@@ -38,10 +38,10 @@ test("normalizes safe repo-relative path and glob resources", async () => {
       { kind: "glob", value: "analyses/trending-baseline/**" },
     ]);
     await expect(
-      normalizeLockResources({ cwd: workspace, resources: ["/tmp/outside.ts"] }),
+      normalizeLockResources({ cwd: workspace, resourceSpecs: ["/tmp/outside.ts"] }),
     ).rejects.toThrow("repo-relative");
     await expect(
-      normalizeLockResources({ cwd: workspace, resources: ["../outside.ts"] }),
+      normalizeLockResources({ cwd: workspace, resourceSpecs: ["../outside.ts"] }),
     ).rejects.toThrow("inside the repository");
   });
 });
@@ -89,7 +89,7 @@ test("acquire defaults to .agentlocks/locks and reports overlapping conflicts", 
     const registry = testRegistry(workspace, new Date("2026-05-04T10:00:00Z"));
 
     const acquired = await registry.acquire({
-      resources: ["src/locks/registry.ts"],
+      resourceSpecs: ["src/locks/registry.ts"],
       reason: "edit registry",
       agentId: "session-a",
     });
@@ -100,7 +100,7 @@ test("acquire defaults to .agentlocks/locks and reports overlapping conflicts", 
     ).resolves.toBeTruthy();
 
     const conflict = await registry.acquire({
-      resources: ["src/**/*.ts"],
+      resourceSpecs: ["src/**/*.ts"],
       reason: "format src",
       agentId: "session-b",
     });
@@ -118,20 +118,20 @@ test("expand is atomic when the requested resource conflicts", async () => {
     const registry = testRegistry(workspace, new Date("2026-05-04T10:00:00Z"));
 
     const first = await registry.acquire({
-      resources: ["src/a.ts"],
+      resourceSpecs: ["src/a.ts"],
       reason: "edit a",
       agentId: "session-a",
     });
-    await registry.acquire({ resources: ["src/b.ts"], reason: "edit b", agentId: "session-b" });
+    await registry.acquire({ resourceSpecs: ["src/b.ts"], reason: "edit b", agentId: "session-b" });
 
     const expanded = await registry.expand({
       lockId: first.lock?.lockId ?? "",
-      resources: ["src/b.ts"],
+      resourceSpecs: ["src/b.ts"],
       agentId: "session-a",
     });
     expect(expanded.exitCode).toBe(3);
 
-    const status = await registry.status({ resources: ["src/a.ts"] });
+    const status = await registry.status({ resourceSpecs: ["src/a.ts"] });
     expect(status.locks?.[0]?.lock.resources).toEqual([{ kind: "path", value: "src/a.ts" }]);
   });
 });
@@ -140,7 +140,7 @@ test("refresh, release, and expand require the owning agent id", async () => {
   await withWorkspace(async (workspace) => {
     const registry = testRegistry(workspace, new Date("2026-05-04T10:00:00Z"));
     const acquired = await registry.acquire({
-      resources: ["src/locks/registry.ts"],
+      resourceSpecs: ["src/locks/registry.ts"],
       reason: "edit registry",
       agentId: "session-a",
     });
@@ -150,7 +150,7 @@ test("refresh, release, and expand require the owning agent id", async () => {
       "is owned by session-a",
     );
     await expect(
-      registry.expand({ lockId, resources: ["src/locks/types.ts"], agentId: "session-b" }),
+      registry.expand({ lockId, resourceSpecs: ["src/locks/types.ts"], agentId: "session-b" }),
     ).rejects.toThrow("is owned by session-a");
     await expect(registry.release(lockId, "session-b")).rejects.toThrow("is owned by session-a");
 
@@ -172,7 +172,7 @@ test("unknown liveness does not make expired sessions permanent", async () => {
     );
 
     await registry.acquire({
-      resources: ["stale.ts"],
+      resourceSpecs: ["stale.ts"],
       reason: "owner disappeared",
       ttlMs: 1000,
       agentId: "missing-session",
@@ -196,7 +196,7 @@ test("@git/index conflicts only with another git lock", async () => {
       agentId: "session-a",
     });
     const file = await registry.acquire({
-      resources: ["src/unrelated.ts"],
+      resourceSpecs: ["src/unrelated.ts"],
       reason: "edit file",
       agentId: "session-b",
     });
@@ -307,7 +307,7 @@ test("lock command output is compact by default and renders agentlocks commands"
     const acquired = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["src/cli/program.ts"],
+        resourceSpecs: ["src/cli/program.ts"],
         reason: "parse lock command",
         ttlMs: null,
         agentId: "session-a",
@@ -322,7 +322,7 @@ test("lock command output is compact by default and renders agentlocks commands"
       () => ({ status: "dead", evidence: "fixture dead" }),
     );
     const conflict = await conflictRegistry.acquire({
-      resources: ["src/cli/program.ts"],
+      resourceSpecs: ["src/cli/program.ts"],
       reason: "other edit",
       agentId: "session-b",
     });
@@ -346,7 +346,7 @@ test("lock command supports compact ids and batched refresh and release", async 
     const first = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["src/cli/program.ts"],
+        resourceSpecs: ["src/cli/program.ts"],
         reason: "edit parser",
         ttlMs: null,
         agentId: "session-a",
@@ -358,7 +358,7 @@ test("lock command supports compact ids and batched refresh and release", async 
     const second = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["tests/cli.test.ts"],
+        resourceSpecs: ["tests/cli.test.ts"],
         reason: "edit parser tests",
         ttlMs: null,
         agentId: "session-a",
@@ -409,7 +409,7 @@ test("prune id-only returns pruned lock ids", async () => {
     const acquired = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["stale.ts"],
+        resourceSpecs: ["stale.ts"],
         reason: "stale lock",
         ttlMs: 1000,
         agentId: "session-a",
@@ -446,7 +446,7 @@ test("prune dry-run reports reclaimable locks without deleting", async () => {
     const acquired = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["stale.ts"],
+        resourceSpecs: ["stale.ts"],
         reason: "stale lock",
         ttlMs: 1000,
         agentId: "session-a",
@@ -469,7 +469,7 @@ test("prune dry-run reports reclaimable locks without deleting", async () => {
     const statusAfterPlan = await executeLockCommand(
       {
         name: "status",
-        resources: [],
+        resourceSpecs: [],
         json: true,
         idOnly: false,
       },
@@ -502,7 +502,7 @@ test("acquire reclaimConflicts takes over reclaimable conflicts in one command",
       }),
     );
     const first = await registry.acquire({
-      resources: ["hot.ts"],
+      resourceSpecs: ["hot.ts"],
       reason: "edit hot",
       ttlMs: 1000,
       agentId: "session-a",
@@ -510,7 +510,7 @@ test("acquire reclaimConflicts takes over reclaimable conflicts in one command",
     now = new Date("2026-05-04T10:05:00Z");
 
     const blocked = await registry.acquire({
-      resources: ["hot.ts"],
+      resourceSpecs: ["hot.ts"],
       reason: "take over",
       agentId: "session-b",
     });
@@ -518,7 +518,7 @@ test("acquire reclaimConflicts takes over reclaimable conflicts in one command",
     expect(blocked.suggestedAction).toBe("prune_then_retry");
 
     const taken = await registry.acquire({
-      resources: ["hot.ts"],
+      resourceSpecs: ["hot.ts"],
       reason: "take over",
       agentId: "session-b",
       reclaimConflicts: true,
@@ -527,7 +527,7 @@ test("acquire reclaimConflicts takes over reclaimable conflicts in one command",
     const firstId = first.lock?.lockId ?? "";
     expect(taken.reclaimed?.map((lock) => lock.lockId)).toEqual([firstId]);
 
-    const status = await registry.status({ resources: ["hot.ts"] });
+    const status = await registry.status({ resourceSpecs: ["hot.ts"] });
     expect(status.locks).toHaveLength(1);
     const owner = status.locks?.[0]?.lock.owner;
     expect(owner ? lockOwnerAgentId(owner) : null).toBe("session-b");
@@ -546,13 +546,13 @@ test("acquire reclaimConflicts still blocks when a conflict is not reclaimable",
           : { status: "dead", evidence: "dead" },
     );
     await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit a",
       ttlMs: 1000,
       agentId: "session-a",
     });
     await registry.acquire({
-      resources: ["b.ts"],
+      resourceSpecs: ["b.ts"],
       reason: "edit b",
       ttlMs: 1000,
       agentId: "session-live",
@@ -560,7 +560,7 @@ test("acquire reclaimConflicts still blocks when a conflict is not reclaimable",
     now = new Date("2026-05-04T10:05:00Z");
 
     const blocked = await registry.acquire({
-      resources: ["*.ts"],
+      resourceSpecs: ["*.ts"],
       reason: "format",
       agentId: "session-b",
       reclaimConflicts: true,
@@ -575,7 +575,7 @@ test("keep-alive extends an agent's recent siblings but not stale over-grabs", a
     let now = new Date("2026-05-04T10:00:00Z");
     const registry = testRegistry(workspace, () => now);
     await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit a",
       ttlMs: 60_000,
       agentId: "session-a",
@@ -583,22 +583,22 @@ test("keep-alive extends an agent's recent siblings but not stale over-grabs", a
 
     now = new Date("2026-05-04T10:00:30Z");
     await registry.acquire({
-      resources: ["b.ts"],
+      resourceSpecs: ["b.ts"],
       reason: "edit b",
       ttlMs: 60_000,
       agentId: "session-a",
     });
-    const warmed = (await registry.status({ resources: ["a.ts"] })).locks?.[0]?.lock;
+    const warmed = (await registry.status({ resourceSpecs: ["a.ts"] })).locks?.[0]?.lock;
     expect(warmed && Date.parse(warmed.leaseExpiresAt)).toBe(Date.parse("2026-05-04T10:01:30Z"));
 
     now = new Date("2026-05-04T11:00:00Z");
     await registry.acquire({
-      resources: ["c.ts"],
+      resourceSpecs: ["c.ts"],
       reason: "edit c",
       ttlMs: 60_000,
       agentId: "session-a",
     });
-    const stale = (await registry.status({ resources: ["a.ts"] })).locks?.[0]?.lock;
+    const stale = (await registry.status({ resourceSpecs: ["a.ts"] })).locks?.[0]?.lock;
     expect(stale && Date.parse(stale.leaseExpiresAt)).toBe(Date.parse("2026-05-04T10:01:30Z"));
   });
 });
@@ -615,13 +615,13 @@ test("board groups active locks by agent with lease state and next step", async 
       }),
     );
     await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit a",
       ttlMs: 600_000,
       agentId: "session-a",
     });
     await registry.acquire({
-      resources: ["b.ts"],
+      resourceSpecs: ["b.ts"],
       reason: "edit b",
       ttlMs: 1000,
       agentId: "session-b",
@@ -651,7 +651,7 @@ test("status --json carries each lock's classification", async () => {
     const acquired = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["s.ts"],
+        resourceSpecs: ["s.ts"],
         reason: "edit",
         ttlMs: 1000,
         agentId: "session-a",
@@ -662,7 +662,7 @@ test("status --json carries each lock's classification", async () => {
     );
     now = new Date("2026-05-04T10:00:05Z");
     const status = await executeLockCommand(
-      { name: "status", resources: [], json: true, idOnly: false },
+      { name: "status", resourceSpecs: [], json: true, idOnly: false },
       { cwd: workspace, config, registryOptions },
     );
     expect(status.json).toMatchObject({
@@ -684,7 +684,7 @@ test("conflict json carries ahead_of and an honest retry-after floor", async () 
     await executeLockCommand(
       {
         name: "acquire",
-        resources: ["m.ts"],
+        resourceSpecs: ["m.ts"],
         reason: "edit",
         ttlMs: 600_000,
         agentId: "session-a",
@@ -696,7 +696,7 @@ test("conflict json carries ahead_of and an honest retry-after floor", async () 
     const conflict = await executeLockCommand(
       {
         name: "acquire",
-        resources: ["m.ts"],
+        resourceSpecs: ["m.ts"],
         reason: "edit2",
         ttlMs: 600_000,
         agentId: "session-b",
@@ -723,13 +723,13 @@ test("multi-incumbent conflict render leads with the binding constraint", async 
           : { status: "dead", evidence: "dead" },
     );
     await registry.acquire({
-      resources: ["a.ts"],
+      resourceSpecs: ["a.ts"],
       reason: "edit a",
       ttlMs: 1000,
       agentId: "session-dead",
     });
     await registry.acquire({
-      resources: ["b.ts"],
+      resourceSpecs: ["b.ts"],
       reason: "edit b",
       ttlMs: 1000,
       agentId: "session-live",
@@ -737,7 +737,7 @@ test("multi-incumbent conflict render leads with the binding constraint", async 
     now = new Date("2026-05-04T10:05:00Z");
 
     const conflict = await registry.acquire({
-      resources: ["*.ts"],
+      resourceSpecs: ["*.ts"],
       reason: "format",
       agentId: "session-c",
     });

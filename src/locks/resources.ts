@@ -7,7 +7,7 @@ const globChars = /[*?]|\[[^\]/]+\]/;
 
 export interface NormalizeResourcesOptions {
   cwd: string;
-  resources?: string[];
+  resourceSpecs?: string[];
   includeGitIndex?: boolean;
 }
 
@@ -16,8 +16,8 @@ export async function normalizeLockResources(
 ): Promise<LockResource[]> {
   const resources: LockResource[] = [];
   if (options.includeGitIndex) resources.push({ kind: "git", value: GIT_INDEX_RESOURCE });
-  for (const rawResource of options.resources ?? []) {
-    resources.push(await normalizeResourceSpec(rawResource, options.cwd));
+  for (const resourceSpec of options.resourceSpecs ?? []) {
+    resources.push(await normalizeResourceSpec(resourceSpec, options.cwd));
   }
   return dedupeResources(resources);
 }

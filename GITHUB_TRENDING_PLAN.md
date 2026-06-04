@@ -411,10 +411,11 @@ Channels:
 
 Target awesome lists:
 
-- `hesreallyhim/awesome-claude-code`
-- `e2b-dev/awesome-ai-agents`
-- `RoggeOhta/awesome-codex-cli`
-- other Claude Code / Codex / agent-tooling lists discovered during Phase 0 research.
+- Use `analyses/trending-research/phase6-distribution-targets.md` as the canonical target map.
+- Prioritize high-fit Claude Code, Codex, and agent-orchestrator awesome-list PRs before generic
+  social channels.
+- Treat adjacent builder repos as human-gated relationship targets, not places for drive-by
+  promotion.
 
 Assets:
 
@@ -430,7 +431,11 @@ Exit gate:
 - Every channel has a tailored message.
 - No post overpromises enforcement.
 - HN first comment handles the obvious objections.
-- At least 20 credible early users/reposters are identified before launch day.
+- At least 20 adjacent-builder targets have tailored notes before launch day.
+- Awesome-list surfaces are tracked separately from candidate early users/reposters.
+- Candidate users/reposters are not counted as confirmed until they show a conversion signal:
+  maintainer reply, accepted PR, integration issue, tested workflow, or public mention.
+- Phase 6 target map has a Claude Code rubric review with a score and integrated corrections.
 
 ### Phase 7: Launch War Room
 

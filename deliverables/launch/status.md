@@ -8,9 +8,9 @@ The launch plan has moved through the positioning, correctness, demo, README, an
 The public repo now has a first-screen collision demo, explicit advisory caveat, community files,
 Dependabot, CodeQL, OpenSSF Scorecard, and high-signal README badges.
 
-Current pushed trust baseline:
+Latest verified pushed baseline at the time of this status:
 
-- pushed commit: `2b83825 Record phase 6 distribution targets`
+- verified commit: `2b83825 Record phase 6 distribution targets`
 - CI: green on `2b83825`
 - CodeQL: green on `2b83825`
 - OpenSSF Scorecard workflow: green on `2b83825`

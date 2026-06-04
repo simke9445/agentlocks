@@ -28,9 +28,7 @@ if (!options.skipBuild) run("bun", ["run", "build"], { cwd: root, stdio: "inheri
 const bundlePath = path.join(root, "dist", "agentlocks.mjs");
 const bundle = readFileSync(bundlePath);
 const gzipBytes = gzipSync(bundle, { level: 9 }).byteLength;
-const pack = JSON.parse(
-  commandText("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root }),
-);
+const pack = measurePackDryRun();
 const versionText = commandText("node", [bundlePath, "--version"], { cwd: root }).trim();
 const helpText = commandText("node", [bundlePath, "--help"], { cwd: root });
 const firstLine = readFileSync(bundlePath, "utf8").split(/\r?\n/, 1)[0] ?? "";
@@ -56,7 +54,7 @@ const env = {
   },
   node: process.version,
   bun: commandText("bun", ["--version"], { cwd: root }).trim(),
-  npm: commandText("npm", ["--version"], { cwd: root }).trim(),
+  npm: commandTextOptional("npm", ["--version"], { cwd: root })?.trim() ?? null,
 };
 
 const size = {
@@ -120,6 +118,44 @@ Options:
 function commandText(command, args, spawnOptions = {}) {
   const result = run(command, args, { ...spawnOptions, encoding: "utf8" });
   return result.stdout ?? "";
+}
+
+function commandTextOptional(command, args, spawnOptions = {}) {
+  const result = spawnSync(command, args, { ...spawnOptions, encoding: "utf8" });
+  if (result.error) {
+    if (result.error.code === "ENOENT") return null;
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const stderr =
+      typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8");
+    throw new Error(
+      `${command} ${args.join(" ")} failed with exit ${result.status}\n${stderr ?? ""}`,
+    );
+  }
+  return result.stdout ?? "";
+}
+
+function measurePackDryRun() {
+  const npmJson = commandTextOptional("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+    cwd: root,
+  });
+  if (npmJson !== null) return JSON.parse(npmJson);
+
+  const bunFilename = commandText(
+    "bun",
+    ["pm", "pack", "--dry-run", "--ignore-scripts", "--quiet"],
+    {
+      cwd: root,
+    },
+  ).trim();
+  return [
+    {
+      tool: "bun pm pack",
+      filename: bunFilename,
+      note: "npm was not available on PATH; recorded Bun dry-run filename fallback",
+    },
+  ];
 }
 
 function run(command, args, spawnOptions = {}) {

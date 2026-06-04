@@ -95,6 +95,17 @@ test("resolveAgentlocksConfig rejects a config with a bad key (programmatic path
   expect(() => resolveAgentlocksConfig({}, { root: "/tmp/agentlocks-x" })).not.toThrow();
 });
 
+test("resolveAgentlocksConfig normalizes lock root separators without regex trimming", () => {
+  const root = "/tmp/agentlocks-x";
+  expect(resolveAgentlocksConfig({ lockRoot: "locks///" }, { root }).lockRootRelative).toBe(
+    "locks",
+  );
+  expect(resolveAgentlocksConfig({ lockRoot: "locks\\nested\\" }, { root }).lockRootRelative).toBe(
+    "locks/nested",
+  );
+  expect(resolveAgentlocksConfig({ lockRoot: "/" }, { root }).lockRootRelative).toBe("/");
+});
+
 test("loadAgentlocksConfig rejects a config FILE with a bad key", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cfg-"));
   try {

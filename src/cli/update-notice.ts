@@ -7,7 +7,7 @@ import { PACKAGE_NAME, PACKAGE_VERSION } from "../package-info";
 // the 0.5.0 lockpick -> agentlocks rename left this pointing at the nonexistent
 // scoped @simke9445/agentlocks, so every update check 404'd and the notice never
 // fired. npm's packument path keeps a literal scope "@" and encodes only "/" as "%2f".
-const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME.replace("/", "%2f")}/latest`;
+const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME.replaceAll("/", "%2f")}/latest`;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 750;
 

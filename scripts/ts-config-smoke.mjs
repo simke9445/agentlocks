@@ -24,9 +24,32 @@ if (!invocation) {
 const IS_WINDOWS = process.platform === "win32";
 const USE_SHELL = IS_WINDOWS && !/\.exe$/i.test(invocation);
 
-// Quote a token for a shell command line (only used on the Windows .cmd path).
+// Quote a token for the Windows shell path. Backslashes immediately before a
+// double quote or the closing quote must be doubled so the child process receives
+// literal backslashes instead of quote escapes.
 function quoteForShell(arg) {
-  return /[^A-Za-z0-9_./:\\-]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+  let quoted = '"';
+  let pendingBackslashes = 0;
+
+  for (const char of arg) {
+    if (char === "\\") {
+      pendingBackslashes += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted += "\\".repeat(pendingBackslashes * 2 + 1);
+      quoted += '"';
+      pendingBackslashes = 0;
+      continue;
+    }
+    quoted += "\\".repeat(pendingBackslashes);
+    pendingBackslashes = 0;
+    quoted += char;
+  }
+
+  quoted += "\\".repeat(pendingBackslashes * 2);
+  quoted += '"';
+  return quoted;
 }
 
 function statusJson(cwd) {

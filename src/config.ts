@@ -218,7 +218,10 @@ function resolveCommandPrefix(command: AgentlocksCommandConfig | undefined): str
 function normalizeLockRoot(lockRoot: string): string {
   const trimmed = lockRoot.trim();
   if (!trimmed) throw new Error("lockRoot must not be empty.");
-  return trimmed.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalized = trimmed.replaceAll("\\", "/");
+  let end = normalized.length;
+  while (end > 1 && normalized[end - 1] === "/") end -= 1;
+  return normalized.slice(0, end);
 }
 
 function normalizePositiveInteger(

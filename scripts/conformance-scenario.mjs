@@ -164,11 +164,33 @@ function git(args, { expectExit = 0, label } = {}) {
   return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
-// Quote an argument for a Windows cmd.exe command line. Wrap in double quotes
-// and escape embedded double quotes; this is enough for the file paths, lock
-// ids, and short reasons this scenario passes (no embedded newlines).
+// Quote an argument for the Windows shell path. Backslashes immediately before a
+// double quote or the closing quote must be doubled so the child process receives
+// literal backslashes instead of quote escapes.
 function quoteForShell(value) {
-  return `"${String(value).replace(/"/g, '\\"')}"`;
+  const text = String(value);
+  let quoted = '"';
+  let pendingBackslashes = 0;
+
+  for (const char of text) {
+    if (char === "\\") {
+      pendingBackslashes += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted += "\\".repeat(pendingBackslashes * 2 + 1);
+      quoted += '"';
+      pendingBackslashes = 0;
+      continue;
+    }
+    quoted += "\\".repeat(pendingBackslashes);
+    pendingBackslashes = 0;
+    quoted += char;
+  }
+
+  quoted += "\\".repeat(pendingBackslashes * 2);
+  quoted += '"';
+  return quoted;
 }
 
 // Print a FAIL line with the captured streams and exit 1 (first-failure stop).

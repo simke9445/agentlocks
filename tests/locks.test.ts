@@ -13,6 +13,7 @@ import {
   resolveAgentlocksConfig,
   resourcesConflict,
 } from "../src/index";
+import { isGlobResourceSpec } from "../src/locks/resources";
 
 test("normalizes safe repo-relative path and glob resources", async () => {
   await withWorkspace(async (workspace) => {
@@ -80,6 +81,16 @@ test("detects exact, path-glob, conservative glob, and git-index conflicts", () 
       { kind: "path", value: "src/unrelated.ts" },
     ),
   ).toBe(false);
+});
+
+test("classifies glob resource specs without regex backtracking", () => {
+  expect(isGlobResourceSpec("src/*.ts")).toBe(true);
+  expect(isGlobResourceSpec("src/file?.ts")).toBe(true);
+  expect(isGlobResourceSpec("src/[ab].ts")).toBe(true);
+  expect(isGlobResourceSpec("src/[[]")).toBe(true);
+  expect(isGlobResourceSpec("src/[]")).toBe(false);
+  expect(isGlobResourceSpec("src/[a/b].ts")).toBe(false);
+  expect(isGlobResourceSpec(`${"[".repeat(10_000)}file.ts`)).toBe(false);
 });
 
 test("acquire defaults to .agentlocks/locks and reports overlapping conflicts", async () => {

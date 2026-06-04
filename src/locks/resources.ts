@@ -3,8 +3,6 @@ import path from "node:path";
 import type { LockResource } from "./types";
 import { GIT_INDEX_RESOURCE, LockCommandError } from "./types";
 
-const globChars = /[*?]|\[[^\]/]+\]/;
-
 export interface NormalizeResourcesOptions {
   cwd: string;
   resourceSpecs?: string[];
@@ -62,7 +60,15 @@ export async function normalizeResourceSpec(
 }
 
 export function isGlobResourceSpec(value: string): boolean {
-  return globChars.test(value);
+  if (value.includes("*") || value.includes("?")) return true;
+  let openBracket = -1;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "[" && openBracket === -1) openBracket = index;
+    if (char === "/") openBracket = -1;
+    if (char === "]" && openBracket !== -1 && index > openBracket + 1) return true;
+  }
+  return false;
 }
 
 function normalizeRepoRelativeInput(rawValue: string, label: string): string {

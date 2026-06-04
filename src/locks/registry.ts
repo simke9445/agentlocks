@@ -3,7 +3,6 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ensureDir, pathExists, readText, writeFileAtomic } from "../io";
-import { formatJsonArtifact } from "../json";
 import { conflictingResources, resourceSetsConflict, resourcesCover } from "./matching";
 import { normalizeLockResources, unionResources } from "./resources";
 import {
@@ -639,7 +638,7 @@ export class FileLockRegistry {
     now: Date,
   ): Promise<void> {
     if (!this.keepAliveOnMutation) return;
-    const locks = await this.readActiveLocks();
+    const locks = await this.readActiveLocks(false);
     const createdFloor = now.getTime() - this.maxTtlMs;
     for (const lock of locks) {
       if (lock.lockId === primaryLockId) continue;
@@ -724,16 +723,17 @@ export class FileLockRegistry {
     return { lock, status: "reclaimable", liveness };
   }
 
-  private async readActiveLocks(): Promise<FileLockRecord[]> {
+  private async readActiveLocks(sort = true): Promise<FileLockRecord[]> {
     await ensureDir(this.activeDir);
     const entries = await fs.readdir(this.activeDir, { withFileTypes: true });
-    const locks: FileLockRecord[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      const raw = await readText(path.join(this.activeDir, entry.name));
-      locks.push(JSON.parse(raw) as FileLockRecord);
-    }
-    return locks.sort((left, right) => left.lockId.localeCompare(right.lockId));
+    const lockFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".json"));
+    const locks = await Promise.all(
+      lockFiles.map(
+        async (entry) =>
+          JSON.parse(await readText(path.join(this.activeDir, entry.name))) as FileLockRecord,
+      ),
+    );
+    return sort ? locks.sort((left, right) => left.lockId.localeCompare(right.lockId)) : locks;
   }
 
   private async requireLock(lockId: string): Promise<FileLockRecord> {
@@ -752,7 +752,7 @@ export class FileLockRegistry {
   private async writeLock(lock: FileLockRecord): Promise<void> {
     await ensureDir(this.activeDir);
     const target = this.lockPath(lock.lockId);
-    await writeFileAtomic(target, `${formatJsonArtifact(lock)}\n`);
+    await writeFileAtomic(target, `${JSON.stringify(lock)}\n`);
   }
 
   private async appendEvent(

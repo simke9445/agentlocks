@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -107,6 +107,26 @@ test("acquire defaults to .agentlocks/locks and reports overlapping conflicts", 
     expect(conflict.exitCode).toBe(3);
     expect(conflict.suggestedAction).toBe("retry_later");
     expect(conflict.conflicts?.[0]?.lock.lockId).toBe(acquired.lock?.lockId);
+  });
+});
+
+test("active lock records are compact valid JSON", async () => {
+  await withWorkspace(async (workspace) => {
+    const registry = testRegistry(workspace, new Date("2026-05-04T10:00:00Z"));
+    const acquired = await registry.acquire({
+      resourceSpecs: ["src/locks/registry.ts"],
+      reason: "edit registry",
+      agentId: "session-a",
+    });
+    const lockId = acquired.lock?.lockId ?? "";
+    const raw = await readFile(
+      path.join(workspace, ".agentlocks", "locks", "active", `${lockId}.json`),
+      "utf8",
+    );
+
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(raw.trim()).not.toContain("\n");
+    expect((JSON.parse(raw) as { lockId?: string }).lockId).toBe(lockId);
   });
 });
 

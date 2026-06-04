@@ -337,7 +337,8 @@ function makeOwner(cwd, agentId) {
 }
 
 function writeLock(activeDir, lock) {
-  writeFileSync(path.join(activeDir, `${lock.lockId}.json`), `${JSON.stringify(lock, null, 2)}\n`);
+  // Match production active-lock serialization so active-set latency reflects current writes.
+  writeFileSync(path.join(activeDir, `${lock.lockId}.json`), `${JSON.stringify(lock)}\n`);
 }
 
 function childEnv() {

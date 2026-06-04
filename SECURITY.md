@@ -11,9 +11,16 @@ current `main` branch before reporting a security issue.
 
 Do not open a public issue with exploit details.
 
-Use GitHub's private vulnerability reporting flow for this repository when it is available. If that
-flow is unavailable, open a minimal public issue that says a private security report is needed, but
-do not include paths, payloads, proof-of-concept output, or other sensitive details.
+Use GitHub's private vulnerability reporting flow for this repository when it is available:
+
+https://github.com/simke9445/agentlocks/security/advisories/new
+
+If that flow is unavailable, open a minimal public issue that says a private security report is
+needed, but do not include paths, payloads, proof-of-concept output, or other sensitive details.
+
+The published security policy lives at:
+
+https://github.com/simke9445/agentlocks/security/policy
 
 Include the affected version or commit, operating system, Node version, exact command, expected
 behavior, observed behavior, and whether the issue can overwrite files, bypass lock checks, corrupt

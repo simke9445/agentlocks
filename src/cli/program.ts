@@ -1,7 +1,7 @@
 import { Command, CommanderError, InvalidArgumentError, type OutputConfiguration } from "commander";
-import packageJson from "../../package.json";
 import type { InitHarness } from "../init";
 import { type LockCommand, LockCommandError } from "../locks/types";
+import { PACKAGE_VERSION } from "../package-info";
 import type { CapabilitiesCommandOptions } from "./capabilities";
 import type { InitCommandOptions } from "./commands/init";
 import type { WrappedCommand } from "./commands/wrapped";
@@ -155,7 +155,7 @@ function createProgram(onCommand?: (command: CliCommand) => void): Command {
   const program = new Command()
     .name("agentlocks")
     .description("Local advisory locking for shared repository worktrees.")
-    .version(packageJson.version, "-V, --version", "Print the agentlocks version and exit.")
+    .version(PACKAGE_VERSION, "-V, --version", "Print the agentlocks version and exit.")
     .showHelpAfterError()
     .allowExcessArguments(false)
     .exitOverride()

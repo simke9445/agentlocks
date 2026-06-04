@@ -1,4 +1,3 @@
-import packageJson from "../../package.json";
 import { DEFAULT_CONFIG_FILE, DEFAULT_LOCK_ROOT } from "../config";
 import {
   AGENTLOCKS_HARNESS_AGENT_ENV_KEY,
@@ -12,6 +11,7 @@ import {
   GIT_INDEX_RESOURCE,
   MAX_LOCK_TTL_MS,
 } from "../locks/types";
+import { PACKAGE_VERSION } from "../package-info";
 
 export interface CapabilitiesCommandOptions {
   json: boolean;
@@ -398,7 +398,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
     kind: "capabilities",
     schema_version: 2,
     name: "agentlocks",
-    version: packageJson.version,
+    version: PACKAGE_VERSION,
     contract: "agentlocks.capabilities.v2",
     json_schemas: JSON_SCHEMAS,
     commands: [
@@ -826,7 +826,7 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
             kind: "capabilities",
             schema_version: 2,
             name: "agentlocks",
-            version: packageJson.version,
+            version: PACKAGE_VERSION,
             contract: "agentlocks.capabilities.v2",
             commands: [],
             json_schemas: {},

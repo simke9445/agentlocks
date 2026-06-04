@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import packageJson from "../package.json";
 import { FileLockRegistry } from "../src/locks/registry";
+import { PACKAGE_NAME, PACKAGE_VERSION } from "../src/package-info";
 
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
@@ -55,6 +57,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
+});
+
+test("source package metadata fallback matches package manifest", () => {
+  expect(PACKAGE_NAME).toBe(packageJson.name);
+  expect(PACKAGE_VERSION).toBe(packageJson.version);
 });
 
 const cases: ContractCase[] = [
@@ -233,6 +240,15 @@ test("production bundle and package dry-run preserve structural contract", async
   }
   const bundle = await readFile(bundlePath, "utf8");
   expect(bundle).not.toContain("AGENTLOCKS_PERF");
+  expect(bundle).not.toContain('"devDependencies"');
+  expect(bundle).not.toContain('"packageManager"');
+
+  const version = await runCli(bundleInvocation, ["--version"], { cwd: root });
+  expect(version.stdout.trim()).toBe(packageJson.version);
+  const capabilities = await runCli(bundleInvocation, ["capabilities", "--json"], { cwd: root });
+  expect((JSON.parse(capabilities.stdout) as { version?: string }).version).toBe(
+    packageJson.version,
+  );
 
   const pack = JSON.parse(
     (

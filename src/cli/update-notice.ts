@@ -1,9 +1,8 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import packageJson from "../../package.json";
+import { PACKAGE_NAME, PACKAGE_VERSION } from "../package-info";
 
-const PACKAGE_NAME = packageJson.name;
 // Derive the registry URL from the package name so a rename can't desync the two:
 // the 0.5.0 lockpick -> agentlocks rename left this pointing at the nonexistent
 // scoped @simke9445/agentlocks, so every update check 404'd and the notice never
@@ -42,7 +41,7 @@ export async function maybePrintUpdateNotice(options: UpdateNoticeOptions = {}):
   const argv = options.argv ?? process.argv.slice(2);
   if (!shouldCheckForUpdates({ argv, env, stderr })) return;
 
-  const currentVersion = options.currentVersion ?? packageJson.version;
+  const currentVersion = options.currentVersion ?? PACKAGE_VERSION;
   const now = options.now ?? new Date();
   const cachePath = options.cachePath ?? defaultUpdateCachePath(env);
   const cached = await readUpdateCache(cachePath);
@@ -122,7 +121,7 @@ async function fetchLatestVersion(options: {
     const response = await options.fetchImpl(REGISTRY_URL, {
       headers: {
         accept: "application/json",
-        "user-agent": `agentlocks/${packageJson.version}`,
+        "user-agent": `agentlocks/${PACKAGE_VERSION}`,
       },
       signal: controller.signal,
     });

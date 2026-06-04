@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 
 // Start from a clean dist/ so the packed tarball never ships a stale artifact
 // (e.g. an old unminified bundle left over from a prior build).
@@ -32,6 +33,8 @@ bun([
   path.join(root, "bin", "agentlocks.ts"),
   "--target=node",
   "--minify",
+  `--define=AGENTLOCKS_PACKAGE_NAME=${JSON.stringify(packageJson.name)}`,
+  `--define=AGENTLOCKS_PACKAGE_VERSION=${JSON.stringify(packageJson.version)}`,
   "--outfile",
   cli,
 ]);

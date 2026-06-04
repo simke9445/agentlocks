@@ -226,8 +226,17 @@ const JSON_SCHEMAS: Record<string, JsonSchemaCapability> = {
   },
   "lock.identified.compact": {
     type: "object",
-    required: ["kind", "exit_code", "agent_id", "source", "harness", "harness_scope"],
-    optional: [],
+    required: [
+      "kind",
+      "exit_code",
+      "agent_id",
+      "source",
+      "harness",
+      "harness_scope",
+      "reliable",
+      "mine_supported",
+    ],
+    optional: ["mine_unsupported_reason"],
     properties: {
       kind: "literal identified",
       exit_code: "number exit status",
@@ -235,6 +244,10 @@ const JSON_SCHEMAS: Record<string, JsonSchemaCapability> = {
       source: "identity source label or null",
       harness: "detected harness name or null",
       harness_scope: "agent, session, or null",
+      reliable: "true when the owner id is stable enough for owner-keyed decisions",
+      mine_supported: "true when refresh --mine and release --mine are expected to work",
+      mine_unsupported_reason:
+        "short reason code such as fallback_identity or session_scoped_identity",
     },
   },
   "git.begin.compact": {
@@ -581,6 +594,8 @@ export function agentlocksCapabilities(): AgentlocksCapabilities {
           source: "harness:codex:CODEX_THREAD_ID",
           harness: "codex",
           harness_scope: "agent",
+          reliable: true,
+          mine_supported: true,
         }),
         exit_codes: [0],
         next: ['agentlocks acquire <resources...> --reason "<intent>"'],

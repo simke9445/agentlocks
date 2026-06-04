@@ -8,6 +8,7 @@ import { FileLockRegistry, type FileLockRegistryOptions } from "./registry";
 import {
   createHarnessSessionProbe,
   createUnknownSessionProbe,
+  isReliableOwnerIdentity,
   lockOwnerAgentId,
   lockOwnerSource,
   probeClaudeCodeSessionLiveness,
@@ -453,6 +454,7 @@ function compactLockJson(result: LockOperationResult): Record<string, unknown> {
         source: result.owner ? lockOwnerSource(result.owner) : null,
         harness: result.owner?.harness ?? null,
         harness_scope: result.owner?.harnessScope ?? null,
+        ...identifyMineSupport(result.owner),
       };
   }
 }
@@ -612,16 +614,28 @@ export function renderLockResult(
       return result.dryRun
         ? `prunable locks: ${result.pruned?.length ?? 0}`
         : `pruned locks: ${result.pruned?.length ?? 0}`;
-    case "identified":
-      if (!verbose) return `agent id: ${agentIdText(result.owner)}`;
+    case "identified": {
+      const support = identifyMineSupport(result.owner);
+      if (!verbose) {
+        return [
+          `agent id: ${agentIdText(result.owner)}`,
+          `mine supported: ${support.mine_supported}`,
+        ].join("\n");
+      }
       return [
         `agent id: ${agentIdText(result.owner)}`,
         `source: ${result.owner ? (lockOwnerSource(result.owner) ?? "<unknown>") : "<unknown>"}`,
         `harness: ${result.owner?.harness ?? "<none>"}`,
         `harness scope: ${result.owner?.harnessScope ?? "<none>"}`,
+        `reliable: ${support.reliable}`,
+        `mine supported: ${support.mine_supported}`,
+        ...("mine_unsupported_reason" in support
+          ? [`mine unsupported reason: ${support.mine_unsupported_reason}`]
+          : []),
         `hostname: ${result.owner?.hostname ?? "<unknown>"}`,
         `pid: ${result.owner?.pid ?? "<unknown>"}`,
       ].join("\n");
+    }
   }
 }
 
@@ -729,6 +743,28 @@ function renderBoard(board: BoardAgent[]): string {
 
 function agentIdText(owner: LockOperationResult["owner"]): string {
   return owner ? lockOwnerAgentId(owner) : "<unknown>";
+}
+
+function identifyMineSupport(owner: LockOperationResult["owner"]): Record<string, unknown> {
+  if (!owner) {
+    return {
+      reliable: false,
+      mine_supported: false,
+      mine_unsupported_reason: "missing_identity",
+    };
+  }
+  const reliable = isReliableOwnerIdentity(owner);
+  if (reliable) return { reliable: true, mine_supported: true };
+  return {
+    reliable: false,
+    mine_supported: false,
+    mine_unsupported_reason:
+      owner.source === "fallback"
+        ? "fallback_identity"
+        : owner.harnessScope === "session"
+          ? "session_scoped_identity"
+          : "unreliable_identity",
+  };
 }
 
 function renderStatusSummary(locks: ClassifiedLock[]): string {

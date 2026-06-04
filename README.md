@@ -83,7 +83,7 @@ Identity just works, with no setup and no flags:
 
 ```text
 $ agentlocks identify --json
-{"kind":"identified","exit_code":0,"agent_id":"claude-code:0fd188d5-...","source":"harness:claude-code:CLAUDE_CODE_SESSION_ID","harness":"claude-code","harness_scope":"session"}
+{"kind":"identified","exit_code":0,"agent_id":"codex:0fd188d5-...","source":"harness:codex:CODEX_THREAD_ID","harness":"codex","harness_scope":"agent","reliable":true,"mine_supported":true}
 ```
 
 Agentlocks even brings its own harness integration: `agentlocks init --harness claude-code`
@@ -276,7 +276,7 @@ agentlocks acquire 'analyses/trending-baseline/**' --reason "create Phase 0 arti
 | `status [resources...]` | List active locks, filtered by resources or `--mine` | `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes normalized resources, owner, reason, status, reclaimability, and next action |
 | `board [resources...]` | Who/What/Where overview grouped by agent, with each lease's state | `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; grouped compact JSON uses the same lock summary shape as `status` |
 | `prune` | Remove reclaimable expired locks | `--dry-run`, `--json`, `--id-only`, `--verbose` | Use `--dry-run` before deleting |
-| `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; use `identify --json` |
+| `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; JSON reports whether `refresh --mine` / `release --mine` are supported |
 | `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first; `--id-only` prints two lines: the lock id, then a fence token |
 | `git end [locks...]` | Release the synthetic Git-index lock | `--release-lock`, `--git-token`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Pass Git-index lock ids positionally; `--git-token` re-checks the fence before releasing; can release file locks after |
 | `git verify` | Advisory check: are staged paths covered by a held lock? | `--staged`, `--include-unstaged`, `--pathspec`, `--pathspec-mode`, `--json`, `--verbose` | Read-only, never blocks, always exits 0; the engine behind the commit-hook backstop |

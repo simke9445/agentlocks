@@ -301,6 +301,72 @@ test("owner detection prefers harness identity before explicit, env, and fallbac
   });
 });
 
+test("identify json explains whether --mine is supported", async () => {
+  await withWorkspace(async (workspace) => {
+    const config = resolveAgentlocksConfig({}, { root: workspace });
+    async function identify(
+      env: NodeJS.ProcessEnv,
+      agentId: string | null = null,
+    ): Promise<{ json: Record<string, unknown>; text: string }> {
+      const output = await executeLockCommand(
+        { name: "identify", agentId, json: true, idOnly: false },
+        { cwd: workspace, config, registryOptions: { env } },
+      );
+      return { json: output.json as Record<string, unknown>, text: output.text };
+    }
+
+    const fallback = await identify({});
+    expect(fallback.json.agent_id).toEqual(expect.stringMatching(/^agentlocks:/));
+    expect(fallback.json).toMatchObject({
+      reliable: false,
+      mine_supported: false,
+      mine_unsupported_reason: "fallback_identity",
+    });
+    expect(fallback.text).toContain("mine supported: false");
+
+    const bareClaude = await identify({ CLAUDE_CODE_SESSION_ID: "claude-session" });
+    expect(bareClaude.json).toMatchObject({
+      agent_id: "claude-code:claude-session",
+      reliable: false,
+      mine_supported: false,
+      mine_unsupported_reason: "session_scoped_identity",
+    });
+
+    const scopedClaude = await identify({
+      AGENTLOCKS_HARNESS_AGENT_ID: "claude-code:claude-session:agent:agent-1",
+    });
+    expect(scopedClaude.json).toMatchObject({
+      agent_id: "claude-code:claude-session:agent:agent-1",
+      reliable: true,
+      mine_supported: true,
+    });
+    expect(scopedClaude.json.mine_unsupported_reason).toBeUndefined();
+
+    const codex = await identify({ CODEX_THREAD_ID: "codex-thread" });
+    expect(codex.json).toMatchObject({
+      agent_id: "codex:codex-thread",
+      reliable: true,
+      mine_supported: true,
+    });
+
+    const explicit = await identify({}, "explicit-session");
+    expect(explicit.json).toMatchObject({
+      agent_id: "explicit-session",
+      source: "explicit",
+      reliable: true,
+      mine_supported: true,
+    });
+
+    const env = await identify({ AGENTLOCKS_AGENT_ID: "env-agent" });
+    expect(env.json).toMatchObject({
+      agent_id: "env-agent",
+      source: "env:AGENTLOCKS_AGENT_ID",
+      reliable: true,
+      mine_supported: true,
+    });
+  });
+});
+
 test("lock command output is compact by default and renders agentlocks commands", async () => {
   await withWorkspace(async (workspace) => {
     const config = resolveAgentlocksConfig({}, { root: workspace });

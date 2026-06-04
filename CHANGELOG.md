@@ -31,6 +31,9 @@ contract change in place with no migration layer.
 - **Lock-id inputs are now canonical positionals.** `refresh`, `release`, and `git end` no longer
   accept the generic repeatable `--lock`; keep passing lock ids positionally. Role-specific
   `expand --lock`, `git begin --refresh-lock`, and `git end --release-lock` remain.
+- **`identify --json` now explains `--mine` reliability.** It reports `reliable`,
+  `mine_supported`, and a short `mine_unsupported_reason` for fallback or bare Claude session
+  identities so agents can decide before trying `refresh --mine` or `release --mine`.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages

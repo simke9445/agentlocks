@@ -560,6 +560,18 @@ test("capabilities json is compact and machine-readable", async () => {
     json_schema_ref: "git.verify.compact",
     id_only: false,
   });
+  const identify = payload.commands?.find((command) => command.name === "identify");
+  expect(identify).toMatchObject({
+    json_kind: "identified",
+    json_schema_ref: "lock.identified.compact",
+    json_example: expect.objectContaining({ reliable: true, mine_supported: true }),
+  });
+  expect(payload.json_schemas?.["lock.identified.compact"]).toEqual(
+    expect.objectContaining({
+      required: expect.arrayContaining(["reliable", "mine_supported"]),
+      optional: ["mine_unsupported_reason"],
+    }),
+  );
   expect(payload.commands?.find((command) => command.name === "refresh")?.flags).not.toContain(
     "--lock",
   );

@@ -200,8 +200,7 @@ interface LockCommandOutputOptions {
 export type LockCommand =
   | ({
       name: "acquire";
-      paths: string[];
-      globs: string[];
+      resources: string[];
       reason: string;
       ttlMs: number | null;
       agentId: string | null;
@@ -210,8 +209,7 @@ export type LockCommand =
   | ({
       name: "expand";
       lockId: string;
-      paths: string[];
-      globs: string[];
+      resources: string[];
       ttlMs: number | null;
       agentId: string | null;
     } & LockCommandOutputOptions)
@@ -230,14 +228,12 @@ export type LockCommand =
     } & LockCommandOutputOptions)
   | ({
       name: "status";
-      paths: string[];
-      globs: string[];
+      resources: string[];
       mine?: boolean;
     } & LockCommandOutputOptions)
   | ({
       name: "board";
-      paths: string[];
-      globs: string[];
+      resources: string[];
       mine?: boolean;
     } & LockCommandOutputOptions)
   | ({ name: "prune"; dryRun: boolean } & LockCommandOutputOptions)

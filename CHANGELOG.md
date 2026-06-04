@@ -7,6 +7,11 @@ contract change in place with no migration layer.
 
 ### Changed
 
+- **Resource lock arguments are now one quoted positional list.** `acquire`, `expand`, `status`,
+  `board`, `run`, `edit`, and `commit` infer exact path locks versus glob locks from each quoted
+  resource argument, so `agentlocks acquire 'a.ts' 'b.ts' 'src/**/*.ts' --reason "edit files"` is
+  the public contract. The separate glob flag is removed; quoted future paths and subtree globs can
+  be locked before the files or directories exist.
 - **agentlocks now ships as one small Node bundle instead of seven embedded-Bun binaries.**
   `npm i -g agentlocks` previously resolved a prebuilt, Bun-embedded binary per platform — 60–112 MB
   installed, ~100% of it the embedded Bun runtime — from one of seven `agentlocks-<platform>` packages
@@ -103,7 +108,7 @@ hardened against a real double-acquire race. The install model, the agent-ergono
   `agentlocks robot-docs`, and `agentlocks git` with no subcommand used to print
   `agentlocks error: (outputHelp)`; they now print help and exit 0.
 - **More errors carry a `next:` recovery command.** A missing required option appends the corrected
-  command (for example, `next: agentlocks acquire <paths> --reason <text>`), and the
+  command (for example, `next: agentlocks acquire <resources> --reason <text>`), and the
   high-frequency lock-usage errors (missing lock id, lock-not-found) point at
   `agentlocks status --id-only`.
 - **`doctor` no longer reports `ok:false` right after a normal `init`.** It validates against
@@ -222,8 +227,9 @@ hardened against a real double-acquire race. The install model, the agent-ergono
   and acquire in a single command, reporting `reclaimed_lock_ids`. Also configurable globally via
   `defaults.autoReclaimOnConflict` (off by default).
 - **`run` / `edit` / `commit` intent verbs** that bundle the safe lock/act/release ordering:
-  `run <paths> --reason -- <cmd>` releases after the wrapped command; `edit` keeps the lock for later
-  turns; `commit <paths> --reason -m <msg>` stages and commits only the locked paths (pathspec-scoped)
+  `run <resources> --reason -- <cmd>` releases after the wrapped command; `edit` keeps the lock for
+  later turns; `commit <resources> --reason -m <msg>` stages and commits only the locked resources
+  (pathspec-scoped)
   through the `@git/index` lock. The wrapped command runs outside the registry mutex.
 - **Claude Code liveness adapter** plus an **`auto`** adapter (now the default) that probes by the
   owner's detected harness (the Codex session index or the Claude Code session transcript) and falls

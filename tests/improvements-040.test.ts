@@ -66,8 +66,8 @@ test("F1 resourceCovers is direction-aware (not symmetric overlap)", () => {
 test("F1 re-acquiring your own path is idempotent (same id, exit 0)", async () => {
   await withWorkspace(async (dir) => {
     const reg = registry(dir, AGENT_A);
-    const first = await reg.acquire({ paths: ["a.ts"], reason: "first" });
-    const second = await reg.acquire({ paths: ["a.ts"], reason: "retry" });
+    const first = await reg.acquire({ resources: ["a.ts"], reason: "first" });
+    const second = await reg.acquire({ resources: ["a.ts"], reason: "retry" });
     expect(first.exitCode).toBe(0);
     expect(second.exitCode).toBe(0);
     expect(second.lock?.lockId).toBe(first.lock?.lockId);
@@ -77,8 +77,8 @@ test("F1 re-acquiring your own path is idempotent (same id, exit 0)", async () =
 test("F1 a broader request over your own narrow lock still conflicts (exit 3)", async () => {
   await withWorkspace(async (dir) => {
     const reg = registry(dir, AGENT_A);
-    await reg.acquire({ paths: ["src/a.ts"], reason: "narrow" });
-    const broad = await reg.acquire({ globs: ["src/**"], reason: "broad" });
+    await reg.acquire({ resources: ["src/a.ts"], reason: "narrow" });
+    const broad = await reg.acquire({ resources: ["src/**"], reason: "broad" });
     expect(broad.exitCode).toBe(3); // held path does not cover the broader glob
   });
 });
@@ -86,8 +86,8 @@ test("F1 a broader request over your own narrow lock still conflicts (exit 3)", 
 test("F1 a held glob covers a re-acquired concrete path (idempotent)", async () => {
   await withWorkspace(async (dir) => {
     const reg = registry(dir, AGENT_A);
-    const glob = await reg.acquire({ globs: ["src/**"], reason: "glob" });
-    const concrete = await reg.acquire({ paths: ["src/a.ts"], reason: "concrete" });
+    const glob = await reg.acquire({ resources: ["src/**"], reason: "glob" });
+    const concrete = await reg.acquire({ resources: ["src/a.ts"], reason: "concrete" });
     expect(concrete.exitCode).toBe(0);
     expect(concrete.lock?.lockId).toBe(glob.lock?.lockId);
   });
@@ -95,8 +95,8 @@ test("F1 a held glob covers a re-acquired concrete path (idempotent)", async () 
 
 test("F1 another agent's overlapping lock still conflicts (not idempotent)", async () => {
   await withWorkspace(async (dir) => {
-    await registry(dir, AGENT_A).acquire({ paths: ["a.ts"], reason: "A" });
-    const b = await registry(dir, AGENT_B).acquire({ paths: ["a.ts"], reason: "B" });
+    await registry(dir, AGENT_A).acquire({ resources: ["a.ts"], reason: "A" });
+    const b = await registry(dir, AGENT_B).acquire({ resources: ["a.ts"], reason: "B" });
     expect(b.exitCode).toBe(3);
   });
 });
@@ -118,8 +118,8 @@ test("F2 isReliableOwnerIdentity excludes fallback and bare Claude session", () 
 
 test("F2 status --mine shows only the caller's locks", async () => {
   await withWorkspace(async (dir) => {
-    await registry(dir, AGENT_A).acquire({ paths: ["a.ts"], reason: "A" });
-    await registry(dir, AGENT_B).acquire({ paths: ["b.ts"], reason: "B" });
+    await registry(dir, AGENT_A).acquire({ resources: ["a.ts"], reason: "A" });
+    await registry(dir, AGENT_B).acquire({ resources: ["b.ts"], reason: "B" });
     const mine = await registry(dir, AGENT_A).status({}, { mine: true });
     expect(mine.locks?.length).toBe(1);
     expect(mine.locks?.[0]?.lock.owner.agentId).toBe("agent-A");
@@ -129,9 +129,9 @@ test("F2 status --mine shows only the caller's locks", async () => {
 test("F2 release --mine drops every lock the caller holds; no-op when none", async () => {
   await withWorkspace(async (dir) => {
     const reg = registry(dir, AGENT_A);
-    await reg.acquire({ paths: ["a.ts"], reason: "A" });
-    await reg.acquire({ paths: ["b.ts"], reason: "A2" });
-    await registry(dir, AGENT_B).acquire({ paths: ["c.ts"], reason: "B" });
+    await reg.acquire({ resources: ["a.ts"], reason: "A" });
+    await reg.acquire({ resources: ["b.ts"], reason: "A2" });
+    await registry(dir, AGENT_B).acquire({ resources: ["c.ts"], reason: "B" });
 
     const released = await reg.releaseMine();
     expect(released.exitCode).toBe(0);
@@ -188,7 +188,7 @@ test("F3 a held lock covers the staged path, annotated owned_by_caller", async (
     await writeFile(path.join(dir, "b.ts"), "hi\n");
     git(dir, "add", "b.ts");
     const reg = registry(dir, AGENT_A);
-    await reg.acquire({ paths: ["b.ts"], reason: "edit" });
+    await reg.acquire({ resources: ["b.ts"], reason: "edit" });
     const report = await verify(reg, dir);
     expect(report.uncovered).toEqual([]);
     expect(report.covered.map((c) => c.path)).toEqual(["b.ts"]);
@@ -201,7 +201,7 @@ test("F3 a path covered only by another agent lands in foreign_covered", async (
     initRepo(dir);
     await writeFile(path.join(dir, "b.ts"), "hi\n");
     git(dir, "add", "b.ts");
-    await registry(dir, AGENT_B).acquire({ paths: ["b.ts"], reason: "B holds it" });
+    await registry(dir, AGENT_B).acquire({ resources: ["b.ts"], reason: "B holds it" });
     const report = await verify(registry(dir, AGENT_A), dir);
     expect(report.uncovered).toEqual([]);
     expect(report.foreignCovered.map((c) => c.path)).toEqual(["b.ts"]);
@@ -240,7 +240,7 @@ test("F3 a reclaimable (dead) lock does NOT cover a staged path", async () => {
       sessionProbe: deadProbe,
       now: () => past,
     });
-    await staleReg.acquire({ paths: ["b.ts"], reason: "stale", ttlMs: 1000 });
+    await staleReg.acquire({ resources: ["b.ts"], reason: "stale", ttlMs: 1000 });
     const verifyReg = new FileLockRegistry({ cwd: dir, env: AGENT_A, sessionProbe: deadProbe });
     const report = await verify(verifyReg, dir);
     expect(report.uncovered.map((u) => u.path)).toEqual(["b.ts"]); // reclaimable lock excluded

@@ -104,8 +104,7 @@ export async function executeLockCommand(
     case "acquire":
       results.push(
         await registry.acquire({
-          paths: command.paths,
-          globs: command.globs,
+          resources: command.resources,
           reason: command.reason,
           ttlMs: command.ttlMs,
           agentId: command.agentId,
@@ -119,8 +118,7 @@ export async function executeLockCommand(
       results.push(
         await registry.expand({
           lockId: command.lockId,
-          paths: command.paths,
-          globs: command.globs,
+          resources: command.resources,
           ttlMs: command.ttlMs,
           agentId: command.agentId,
         }),
@@ -146,18 +144,12 @@ export async function executeLockCommand(
       break;
     case "status":
       results.push(
-        await registry.status(
-          { paths: command.paths, globs: command.globs },
-          command.mine ? { mine: true } : {},
-        ),
+        await registry.status({ resources: command.resources }, command.mine ? { mine: true } : {}),
       );
       break;
     case "board":
       results.push(
-        await registry.board(
-          { paths: command.paths, globs: command.globs },
-          command.mine ? { mine: true } : {},
-        ),
+        await registry.board({ resources: command.resources }, command.mine ? { mine: true } : {}),
       );
       break;
     case "prune":

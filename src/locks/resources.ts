@@ -3,12 +3,11 @@ import path from "node:path";
 import type { LockResource } from "./types";
 import { GIT_INDEX_RESOURCE, LockCommandError } from "./types";
 
-const globChars = /[*?]/;
+const globChars = /[*?]|\[[^\]/]+\]/;
 
 export interface NormalizeResourcesOptions {
   cwd: string;
-  paths?: string[];
-  globs?: string[];
+  resources?: string[];
   includeGitIndex?: boolean;
 }
 
@@ -17,11 +16,8 @@ export async function normalizeLockResources(
 ): Promise<LockResource[]> {
   const resources: LockResource[] = [];
   if (options.includeGitIndex) resources.push({ kind: "git", value: GIT_INDEX_RESOURCE });
-  for (const rawPath of options.paths ?? []) {
-    resources.push(await normalizePathResource(rawPath, options.cwd));
-  }
-  for (const rawGlob of options.globs ?? []) {
-    resources.push(normalizeGlobResource(rawGlob));
+  for (const rawResource of options.resources ?? []) {
+    resources.push(await normalizeResourceSpec(rawResource, options.cwd));
   }
   return dedupeResources(resources);
 }
@@ -44,7 +40,7 @@ export function unionResources(left: LockResource[], right: LockResource[]): Loc
 
 export async function normalizePathResource(rawPath: string, cwd: string): Promise<LockResource> {
   const value = normalizeRepoRelativeInput(rawPath, "path");
-  if (globChars.test(value)) {
+  if (isGlobResourceSpec(value)) {
     throw new LockCommandError(`Path lock must not contain glob characters: ${rawPath}`, 2);
   }
   await assertExistingPathStaysInsideRepo(value, cwd);
@@ -53,6 +49,20 @@ export async function normalizePathResource(rawPath: string, cwd: string): Promi
 
 export function normalizeGlobResource(rawGlob: string): LockResource {
   return { kind: "glob", value: normalizeRepoRelativeInput(rawGlob, "glob") };
+}
+
+export async function normalizeResourceSpec(
+  rawResource: string,
+  cwd: string,
+): Promise<LockResource> {
+  const value = normalizeRepoRelativeInput(rawResource, "resource");
+  if (isGlobResourceSpec(value)) return { kind: "glob", value };
+  await assertExistingPathStaysInsideRepo(value, cwd);
+  return { kind: "path", value };
+}
+
+export function isGlobResourceSpec(value: string): boolean {
+  return globChars.test(value);
 }
 
 function normalizeRepoRelativeInput(rawValue: string, label: string): string {

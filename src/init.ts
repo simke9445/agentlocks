@@ -159,15 +159,20 @@ export function renderInitResult(result: InitResult): string {
 export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): string {
   const acquire = renderAgentlocksCommand(config, [
     "acquire",
-    "<paths...>",
+    "<resources...>",
     "--reason",
     "<intent>",
   ]);
-  const expand = renderAgentlocksCommand(config, ["expand", "--lock", "<lock_id>", "<paths...>"]);
+  const expand = renderAgentlocksCommand(config, [
+    "expand",
+    "<resources...>",
+    "--lock",
+    "<lock_id>",
+  ]);
   const refresh = renderAgentlocksCommand(config, ["refresh", "<lock_id>"]);
   const commit = renderAgentlocksCommand(config, [
     "commit",
-    "<paths...>",
+    "<resources...>",
     "--reason",
     "<commit intent>",
     "-m",
@@ -196,9 +201,9 @@ export function agentlocksAgentsSnippet(config: ResolvedAgentlocksConfig): strin
     "",
     "This repository uses Agentlocks advisory locks for multi-agent editing.",
     "",
-    "- Acquire exact file locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
-    `- Use \`${acquire}\` and keep requested paths narrow. Prefer exact paths over globs.`,
-    `- Expand before touching newly needed files with \`${expand}\`; do not edit outside the held lock set.`,
+    "- Acquire locks before editing, creating, deleting, renaming, formatting, or bulk-rewriting repository files.",
+    `- Use \`${acquire}\` and keep requested resources narrow. Quote every resource; glob-like resources are inferred from \`*\`, \`?\`, or bracket classes.`,
+    `- Expand before touching newly needed resources with \`${expand}\`; do not edit outside the held lock set.`,
     `- Refresh before edit batches and after long tests with \`${refresh}\`.`,
     "- **To commit, prefer the one-command path:**",
     `  \`${commit}\`. It locks the paths and the shared Git index, stages and commits only those paths`,

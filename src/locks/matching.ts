@@ -73,7 +73,7 @@ function globsMayOverlap(left: string, right: string): boolean {
 }
 
 function staticPrefix(pattern: string): string {
-  const firstGlob = pattern.search(/[*?]/);
+  const firstGlob = pattern.search(/[*?[]/);
   const rawPrefix = firstGlob === -1 ? pattern : pattern.slice(0, firstGlob);
   const slashIndex = rawPrefix.lastIndexOf("/");
   if (slashIndex === -1) return "";
@@ -98,8 +98,24 @@ function globToRegExp(pattern: string): RegExp {
       source += "[^/]";
       continue;
     }
+    if (char === "[") {
+      const end = pattern.indexOf("]", index + 1);
+      if (end > index + 1) {
+        const body = pattern.slice(index + 1, end);
+        source += charClassToRegExp(body);
+        index = end;
+        continue;
+      }
+    }
     source += char?.replace(/[|\\{}()[\]^$+?.]/g, "\\$&") ?? "";
   }
   source += "$";
   return new RegExp(source);
+}
+
+function charClassToRegExp(body: string): string {
+  const negated = body.startsWith("!") || body.startsWith("^");
+  const rawClass = negated ? body.slice(1) : body;
+  const escaped = rawClass.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+  return negated ? `[^/${escaped}]` : `[${escaped}]`;
 }

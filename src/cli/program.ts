@@ -29,7 +29,6 @@ interface LockOutputOptions {
 }
 
 interface LockAcquireOptions extends LockOutputOptions {
-  glob?: string[];
   reason: string;
   ttlMs?: number;
   agentId?: string;
@@ -38,7 +37,6 @@ interface LockAcquireOptions extends LockOutputOptions {
 
 interface LockExpandOptions extends LockOutputOptions {
   lock: string;
-  glob?: string[];
   reason?: string;
   ttlMs?: number;
   agentId?: string;
@@ -58,7 +56,6 @@ interface LockReleaseOptions extends LockOutputOptions {
 }
 
 interface LockStatusOptions extends LockOutputOptions {
-  glob?: string[];
   mine?: boolean;
 }
 
@@ -101,14 +98,12 @@ interface InitCliOptions {
 }
 
 interface WrappedRunOptions {
-  glob?: string[];
   reason: string;
   ttlMs?: number;
   agentId?: string;
 }
 
 interface WrappedCommitOptions {
-  glob?: string[];
   reason: string;
   ttlMs?: number;
   agentId?: string;
@@ -182,9 +177,8 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
   addLockOutputOptions(
     program
       .command("acquire")
-      .description("Acquire advisory locks for paths or globs.")
-      .argument("[paths...]", "Repo-relative file paths.")
-      .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .description("Acquire advisory locks for repo-relative resources.")
+      .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .requiredOption("--reason <text>", "Human-readable lock intent.")
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
@@ -193,15 +187,14 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
         "Reclaim overlapping locks first when every conflict is already reclaimable, then acquire in one command.",
       )
       .allowExcessArguments(false),
-  ).action((paths: string[], _options: LockAcquireOptions, command: Command) => {
+  ).action((resources: string[], _options: LockAcquireOptions, command: Command) => {
     const options = command.opts<LockAcquireOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "acquire",
-          paths,
-          globs: options.glob ?? [],
+          resources,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
@@ -217,15 +210,14 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
   addLockOutputOptions(
     program
       .command("expand")
-      .description("Atomically add paths or globs to an existing lock.")
-      .argument("[paths...]", "Repo-relative file paths.")
+      .description("Atomically add repo-relative resources to an existing lock.")
+      .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .requiredOption("--lock <lock_id>", "Lock id.")
-      .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
       .option("--reason <text>", "Ignored note accepted for acquire/expand command symmetry.")
       .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
       .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
       .allowExcessArguments(false),
-  ).action((paths: string[], _options: LockExpandOptions, command: Command) => {
+  ).action((resources: string[], _options: LockExpandOptions, command: Command) => {
     const options = command.opts<LockExpandOptions>();
     onCommand?.({
       kind: "lock",
@@ -233,8 +225,7 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
         {
           name: "expand",
           lockId: options.lock,
-          paths,
-          globs: options.glob ?? [],
+          resources,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
           json: Boolean(options.json),
@@ -305,19 +296,17 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
     program
       .command("status")
       .description("Show active locks, optionally filtered by requested resources.")
-      .argument("[paths...]", "Repo-relative file paths.")
-      .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
-  ).action((paths: string[], _options: LockStatusOptions, command: Command) => {
+  ).action((resources: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "status",
-          paths,
-          globs: options.glob ?? [],
+          resources,
           ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
@@ -333,19 +322,17 @@ function addLockCommands(program: Command, onCommand?: (command: CliCommand) => 
       .description(
         "Show active locks grouped by agent, with each lock's lease state and next step.",
       )
-      .argument("[paths...]", "Repo-relative file paths.")
-      .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+      .argument("[resources...]", "Quoted repo-relative paths or glob patterns.")
       .option("--mine", "Show only the locks you hold.")
       .allowExcessArguments(false),
-  ).action((paths: string[], _options: LockStatusOptions, command: Command) => {
+  ).action((resources: string[], _options: LockStatusOptions, command: Command) => {
     const options = command.opts<LockStatusOptions>();
     onCommand?.({
       kind: "lock",
       command: withLockVerbose(
         {
           name: "board",
-          paths,
-          globs: options.glob ?? [],
+          resources,
           ...(options.mine ? { mine: true } : {}),
           json: Boolean(options.json),
           idOnly: Boolean(options.idOnly),
@@ -518,35 +505,35 @@ function addWrappedCommands(program: Command, onCommand?: (command: CliCommand) 
   addWrappedRun(
     program,
     "run",
-    "Acquire locks for paths, run a command after --, then release.",
+    "Acquire locks for resources, run a command after --, then release.",
     onCommand,
   );
   addWrappedRun(
     program,
     "edit",
-    "Acquire locks for paths and run a command after --, keeping the lock for later turns.",
+    "Acquire locks for resources and run a command after --, keeping the lock for later turns.",
     onCommand,
   );
 
   program
     .command("commit")
-    .description("Lock paths and the Git index, stage and commit only those paths, then release.")
-    .argument("[paths...]", "Repo-relative file paths to lock and commit.")
-    .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+    .description(
+      "Lock resources and the Git index, stage and commit only those resources, then release.",
+    )
+    .argument("[resources...]", "Quoted repo-relative paths or glob patterns to lock and commit.")
     .requiredOption("--reason <text>", "Human-readable commit intent.")
     .option("-m, --message <text>", "Commit message passed to git commit -m.")
     .option("--keep", "Keep the file lock after committing.")
     .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
     .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
     .allowExcessArguments(false)
-    .action((paths: string[], _options: WrappedCommitOptions, command: Command) => {
+    .action((resources: string[], _options: WrappedCommitOptions, command: Command) => {
       const options = command.opts<WrappedCommitOptions>();
       onCommand?.({
         kind: "wrapped",
         command: {
           name: "commit",
-          paths,
-          globs: options.glob ?? [],
+          resources,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,
@@ -566,20 +553,18 @@ function addWrappedRun(
   program
     .command(name)
     .description(description)
-    .argument("[paths...]", "Repo-relative file paths to lock.")
-    .option("--glob <pattern>", "Repo-relative glob; repeatable.", collectValues, [])
+    .argument("[resources...]", "Quoted repo-relative paths or glob patterns to lock.")
     .requiredOption("--reason <text>", "Human-readable lock intent.")
     .option("--ttl-ms <n>", "Lease length in milliseconds.", parseInteger)
     .option("--agent-id <id>", "Explicit agent id for unsupported harness or recovery.")
     .allowExcessArguments(false)
-    .action((paths: string[], _options: WrappedRunOptions, command: Command) => {
+    .action((resources: string[], _options: WrappedRunOptions, command: Command) => {
       const options = command.opts<WrappedRunOptions>();
       onCommand?.({
         kind: "wrapped",
         command: {
           name,
-          paths,
-          globs: options.glob ?? [],
+          resources,
           reason: options.reason,
           ttlMs: options.ttlMs ?? null,
           agentId: options.agentId ?? null,

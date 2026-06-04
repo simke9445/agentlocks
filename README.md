@@ -38,14 +38,14 @@ from source.) Then run `agentlocks init` once inside each repo you want to coord
 
 ```bash
 # Inside Codex or Claude Code, the agent's identity is detected automatically.
-lock=$(agentlocks acquire src/auth.ts --reason "refactor login" --id-only)
+lock=$(agentlocks acquire 'src/auth.ts' --reason "refactor login" --id-only)
 
 # ... the agent edits src/auth.ts, runs tests ...
 
 agentlocks release "$lock" --id-only
 ```
 
-A second agent that tries to `acquire src/auth.ts` while that lease is held gets a clean
+A second agent that tries to `acquire 'src/auth.ts'` while that lease is held gets a clean
 conflict: the blocking owner, its reason, and the exact command to run next, instead of a
 silent overwrite.
 
@@ -91,7 +91,7 @@ owned, and parseable:
 
 | Collision point | Agentlocks behavior | Proof surface |
 | --- | --- | --- |
-| Two workers edit the same file | `acquire`, `expand`, `refresh`, `release` over repo-relative paths and globs | `agentlocks capabilities --json` |
+| Two workers edit the same file | `acquire`, `expand`, `refresh`, `release` over quoted repo-relative resources | `agentlocks capabilities --json` |
 | A stale "I'm on this" note never clears | TTL leases, liveness classification, `prune --dry-run` then `prune` | `agentlocks prune --dry-run --json` |
 | Two workers race the shared Git index | `git begin` takes the synthetic `@git/index` lock; `git end` releases it | `src/locks/types.ts`, `tests/locks.test.ts` |
 
@@ -105,7 +105,7 @@ no daemon, no privileges, and no lock-holding background process.
 | --- | --- | --- |
 | Manual notes in chat or issues | Informal coordination and intent | No lease, no owner check, no parseable status, easy to forget before staging |
 | Shell scripts | Local conventions around one repo | Usually miss conflict semantics, stale sessions, JSON contracts, and Git-index locking |
-| `flock` | Process-level critical sections on one machine | Not a repo resource registry; no path/glob inventory, owner metadata, install guidance, or agent docs |
+| `flock` | Process-level critical sections on one machine | Not a repo resource registry; no resource inventory, owner metadata, install guidance, or agent docs |
 | Git-native hooks (`pre-commit`) | Commit-time policy checks | Too late to prevent overlapping edits; hooks do not coordinate `git add` across workers, and a single `core.hooksPath` collides with husky/lefthook |
 | Hosted lock service | Cross-machine coordination | Requires a service, credentials, network access, and operational ownership |
 | Agentlocks | Local agents in one repository worktree | Advisory only; participants opt in. Ships `git verify` plus an opt-out PreToolUse backstop (Claude Code + Codex) that runs it *before* a `git commit` tool-call; installs no git hook and never reconfigures your git |
@@ -130,8 +130,8 @@ agentlocks init --check --json || true
 agentlocks init
 
 agentlocks identify --json
-file_lock="$(agentlocks acquire app.ts --reason "edit app" --id-only)"
-agentlocks expand --lock "$file_lock" README.md --id-only
+file_lock="$(agentlocks acquire 'app.ts' --reason "edit app" --id-only)"
+agentlocks expand 'README.md' --lock "$file_lock" --id-only
 agentlocks refresh "$file_lock" --id-only
 
 # git begin --id-only prints two lines: the lock id, then a fence token. Read both.
@@ -208,13 +208,13 @@ Code identity is automatic.
 3. Acquire the narrowest lock before editing.
 
    ```bash
-   agentlocks acquire src/index.ts tests/cli.test.ts --reason "change CLI dispatch" --id-only
+   agentlocks acquire 'src/index.ts' 'tests/cli.test.ts' --reason "change CLI dispatch" --id-only
    ```
 
 4. Expand before touching another file.
 
    ```bash
-   agentlocks expand --lock <lock_id> src/config.ts --id-only
+   agentlocks expand 'src/config.ts' --lock <lock_id> --id-only
    ```
 
 5. Refresh before long edit batches, after tests, and before staging.
@@ -250,22 +250,30 @@ Code identity is automatic.
 `agentlocks capabilities --json` is the source of truth for command metadata, flags, exit codes,
 default TTLs, agent identity detection, and next commands.
 
+Quote every resource so the shell passes it to Agentlocks literally. Exact paths and glob patterns
+share the same positional list:
+
+```bash
+agentlocks acquire 'a.ts' 'b.ts' 'src/**/*.ts' --reason "edit files"
+agentlocks acquire 'analyses/trending-baseline/**' --reason "create Phase 0 artifacts"
+```
+
 | Command | Purpose | Key flags | Output notes |
 | --- | --- | --- | --- |
-| `acquire [paths...]` | Acquire locks for exact repo-relative paths or globs | `--glob`, `--reason`, `--ttl-ms`, `--reclaim`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--reason` and at least one path or glob are required; `--reclaim` takes over conflicts that are all reclaimable |
-| `expand --lock <id> [paths...]` | Add paths or globs to an existing lock atomically | `--lock`, `--glob`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
+| `acquire [resources...]` | Acquire locks for quoted repo-relative paths or glob patterns | `--reason`, `--ttl-ms`, `--reclaim`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--reason` and at least one resource are required; glob-like resources are inferred from `*`, `?`, or bracket classes |
+| `expand [resources...] --lock <id>` | Add quoted repo-relative resources to an existing lock atomically | `--lock`, `--reason`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Requires the owning agent id |
 | `refresh [locks...]` | Extend held lock leases, or all of yours with `--mine` | `--lock`, `--mine`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Positional ids and repeatable `--lock` are merged; `--mine` needs a stable identity |
 | `release [locks...]` | Release held locks, or all of yours with `--mine` | `--lock`, `--mine`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--mine` drops every lock you hold (no ids needed); rejects an unstable identity with exit 2 |
-| `status [paths...]` | List active locks, filtered by resources or `--mine` | `--glob`, `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes each lock's status |
-| `board [paths...]` | Who/What/Where overview grouped by agent, with each lease's state | `--glob`, `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
+| `status [resources...]` | List active locks, filtered by resources or `--mine` | `--mine`, `--json`, `--id-only`, `--verbose` | `--mine` shows only your locks; compact JSON includes each lock's status |
+| `board [resources...]` | Who/What/Where overview grouped by agent, with each lease's state | `--mine`, `--json`, `--id-only`, `--verbose` | Read-only and mutex-free; run it before claiming to pick a free area |
 | `prune` | Remove reclaimable expired locks | `--dry-run`, `--json`, `--id-only`, `--verbose` | Use `--dry-run` before deleting |
 | `identify` | Show detected agent identity | `--agent-id`, `--json`, `--verbose` | `--id-only` is rejected; use `identify --json` |
 | `git begin` | Acquire the synthetic `@git/index` lock | `--reason`, `--refresh-lock`, `--ttl-ms`, `--agent-id`, `--json`, `--id-only`, `--verbose` | Can refresh held file locks first; `--id-only` prints two lines: the lock id, then a fence token |
 | `git end [locks...]` | Release the synthetic Git-index lock | `--lock`, `--release-lock`, `--git-token`, `--agent-id`, `--json`, `--id-only`, `--verbose` | `--git-token` re-checks the fence before releasing; can release file locks after |
 | `git verify` | Advisory check: are staged paths covered by a held lock? | `--staged`, `--include-unstaged`, `--pathspec`, `--pathspec-mode`, `--json`, `--verbose` | Read-only, never blocks, always exits 0; the engine behind the commit-hook backstop |
-| `run [paths...] -- <cmd>` | Acquire locks, run the command after `--`, then release | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | The wrapped command runs outside the registry mutex; exit code is the command's |
-| `edit [paths...] -- <cmd>` | Acquire locks, run the command after `--`, and keep the lock | `--glob`, `--reason`, `--ttl-ms`, `--agent-id` | Prints the lock id so you can refresh or release it across turns |
-| `commit [paths...]` | Lock the paths and the Git index, stage and commit only those paths, then release | `--glob`, `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | Pathspec-scoped `git add`/`git commit`; `--keep` retains the file lock |
+| `run [resources...] -- <cmd>` | Acquire locks, run the command after `--`, then release | `--reason`, `--ttl-ms`, `--agent-id` | The wrapped command runs outside the registry mutex; exit code is the command's |
+| `edit [resources...] -- <cmd>` | Acquire locks, run the command after `--`, and keep the lock | `--reason`, `--ttl-ms`, `--agent-id` | Prints the lock id so you can refresh or release it across turns |
+| `commit [resources...]` | Lock the resources and the Git index, stage and commit only those resources, then release | `--reason`, `--message`, `--keep`, `--ttl-ms`, `--agent-id` | Pathspec-scoped `git add`/`git commit`; `--keep` retains the file lock |
 | `init` | Initialize or check host support files | `--check`, `--harness auto\|codex\|claude-code`, `--no-commit-hook`, `--json`, `--verbose` | Installs the PreToolUse commit-hook backstop by default; `--no-commit-hook` skips it; `--check` exits 1 on drift |
 | `capabilities` | Print the CLI contract | `--json` | Compact single-line JSON |
 | `robot-docs guide` | Print an in-tool agent workflow guide | none | Human text, deterministic golden-tested output |
@@ -382,7 +390,7 @@ bin/agentlocks.ts
         -> lock command handlers
           -> loadAgentlocksConfig
           -> FileLockRegistry
-            -> normalize paths/globs/@git/index
+            -> normalize resources/@git/index
             -> .agentlocks/locks/.mutex
             -> .agentlocks/locks/active/<lock_id>.json
             -> .agentlocks/locks/events.jsonl
@@ -421,7 +429,7 @@ or a migration layer for old lock schemas. The lock record schema is current-ver
 | Conflict JSON has `suggested_action: "prune_then_retry"` | All overlapping locks are reclaimable | `agentlocks prune --dry-run --json`, then `agentlocks prune` |
 | `Lock <id> is owned by <owner>; current owner is <caller>.` | The current agent id differs from the id that created the lock | Continue from the same harness agent, or use `--agent-id <owner>` for unsupported harness recovery |
 | `At least one lock id is required for refresh.` | `refresh`, `release`, or `git end` needs a lock id | `agentlocks status --id-only` |
-| `Lock path must be repo-relative` | Absolute paths are rejected | `agentlocks acquire path/from/repo/root --reason "<intent>"` |
+| `Lock resource must be repo-relative` | Absolute paths are rejected | `agentlocks acquire 'path/from/repo/root' --reason "<intent>"` |
 | `Lock TTL must be <= 1800000.` | The requested lease exceeds the configured maximum | `agentlocks refresh <lock_id> --ttl-ms 600000` |
 | `init --check --json` exits 1 | Init drift was found; no files were written | Review JSON changes, then run `agentlocks init` |
 | `doctor --json` reports init drift | Support files are missing or stale | `agentlocks init --check --json` |
@@ -485,8 +493,8 @@ outside Agentlocks.
 
 ### Does `@git/index` lock every file?
 
-No. `@git/index` only coordinates staging and commit access. Acquire normal file or glob locks for
-the paths you intend to edit and stage.
+No. `@git/index` only coordinates staging and commit access. Acquire normal resource locks for the
+paths or globs you intend to edit and stage.
 
 ### How does stale lock cleanup work?
 
@@ -495,8 +503,9 @@ can remove the record. Use `prune --dry-run --json` first.
 
 ### Can I use it in a monorepo?
 
-Yes, if every participant agrees on the same repository root and lock root. Use repo-relative paths
-and configure `lockRoot` if the default `.agentlocks/locks` is not where you want local state.
+Yes, if every participant agrees on the same repository root and lock root. Use repo-relative
+resources and configure `lockRoot` if the default `.agentlocks/locks` is not where you want local
+state.
 
 ### Is the lock state safe to commit?
 

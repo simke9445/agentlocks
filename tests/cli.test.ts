@@ -53,12 +53,12 @@ test("help lists top-level lock commands", () => {
 test("nested help aliases resolve to subcommand help", () => {
   const direct = parseCliArgs(["expand", "--help"]);
   expect(direct.help).toBe(true);
-  expect(direct.helpText).toContain("Atomically add paths");
+  expect(direct.helpText).toContain("Atomically add repo-relative resources");
   expect(direct.helpText).toContain("--lock <lock_id>");
 
   const alias = parseCliArgs(["help", "expand"]);
   expect(alias.help).toBe(true);
-  expect(alias.helpText).toContain("Atomically add paths");
+  expect(alias.helpText).toContain("Atomically add repo-relative resources");
   expect(alias.helpText).toContain("--lock <lock_id>");
 
   const gitAlias = parseCliArgs(["git", "help", "begin"]);
@@ -137,7 +137,6 @@ test("parse lock acquire command", () => {
   const parsed = parseCliArgs([
     "acquire",
     "src/cli/program.ts",
-    "--glob",
     "src/locks/**/*.ts",
     "--reason",
     "add lock parser",
@@ -152,8 +151,7 @@ test("parse lock acquire command", () => {
   if (parsed.command?.kind !== "lock") throw new Error("expected lock command");
   expect(parsed.command.command).toEqual({
     name: "acquire",
-    paths: ["src/cli/program.ts"],
-    globs: ["src/locks/**/*.ts"],
+    resources: ["src/cli/program.ts", "src/locks/**/*.ts"],
     reason: "add lock parser",
     ttlMs: 1000,
     agentId: "owner-1",
@@ -543,7 +541,7 @@ test("run on a conflicting path exits 3 without executing the command", async ()
   }
 });
 
-test("commit stages and commits only the locked paths, then releases", async () => {
+test("commit stages and commits only the locked resources, then releases", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-cli-commit-"));
   try {
     await execFileAsync("git", ["init", "-q"], { cwd: workspace });

@@ -49,17 +49,18 @@ obscure packages to reduce Shai-Hulud-style supply-chain risk.
 ## File locking policy
 
 This repository uses Agentlocks advisory locks for multi-agent editing. Before modifying tracked or
-untracked repository files, acquire a current lock for the exact repo-relative paths or narrowest
-globs you expect to mutate.
+untracked repository files, acquire a current lock for the narrowest quoted repo-relative resources
+you expect to mutate. Exact paths and glob-like resources share one positional list; quote every
+resource so the shell passes it literally.
 
 ```bash
-bun run --silent agentlocks -- acquire <paths...> --reason "<intent>" --id-only
+bun run --silent agentlocks -- acquire '<resource>' '<resource>' --reason "<intent>" --id-only
 ```
 
 If new files become necessary, expand the existing lock before touching them:
 
 ```bash
-bun run --silent agentlocks -- expand --lock <lock_id> <paths...>
+bun run --silent agentlocks -- expand '<resource>' '<resource>' --lock <lock_id>
 ```
 
 Refresh held locks before edit batches, after long-running commands, and before staging:

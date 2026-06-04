@@ -3,6 +3,25 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## 0.9.3
+
+### Fixed
+
+- **Windows white-box package-contract tests now match npm's platform behavior.** The packed-shim
+  test invokes npm's Windows `.cmd` shim through `cmd.exe`, keeps Node available on a deliberately
+  Bun-free `PATH`, and accepts the non-POSIX tar entry mode npm reports on Windows. The black-box
+  conformance matrix already proved the installed Windows shim; this keeps the release's white-box
+  Windows gate aligned with that shipped contract.
+
+### Changed
+
+- **README badges now favor launch-useful trust signals.** The top-fold badge set shows npm, CI,
+  CodeQL, the Node floor, and license, while keeping the still-low OpenSSF Scorecard score as an
+  internal tracker until it is strong enough to help public trust.
+- **Performance and launch-readiness evidence is complete through the final sweep.** The final
+  performance sweep records the post-optimization size and latency recheck, including the expected
+  pack-size movement from changelog growth rather than bundled runtime code.
+
 ## 0.9.2
 
 ### Changed

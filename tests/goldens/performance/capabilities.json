@@ -613,7 +613,7 @@
             "order": []
           },
           "schema_version": 2,
-          "version": "0.9.2"
+          "version": "0.9.3"
         },
         "json_kind": "capabilities",
         "json_schema_ref": "capabilities.v2",
@@ -965,6 +965,6 @@
       ]
     },
     "schema_version": 2,
-    "version": "0.9.2"
+    "version": "0.9.3"
   }
 }

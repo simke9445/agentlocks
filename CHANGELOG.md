@@ -3,10 +3,13 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
-## 0.9.0
+## 0.9.1
 
 ### Changed
 
+- **Release gates are aligned with the performance contract suite.** The Windows white-box workflow
+  now provisions Node/npm before running `bun test`, and the npm tarball-size guard allows the small
+  pack-size variance observed between local npm and GitHub's runner npm.
 - **Resource lock arguments are now one quoted positional list.** `acquire`, `expand`, `status`,
   `board`, `run`, `edit`, and `commit` infer exact path locks versus glob locks from each quoted
   resource argument, so `agentlocks acquire 'a.ts' 'b.ts' 'src/**/*.ts' --reason "edit files"` is

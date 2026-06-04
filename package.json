@@ -1,6 +1,6 @@
 {
   "name": "agentlocks",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Agent-native advisory file locks that let multiple AI coding agents share one Git worktree without clobbering each other.",
   "license": "MIT",
   "author": "Djordje Simovic",

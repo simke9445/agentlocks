@@ -16,7 +16,7 @@ const goldenDir = path.join(root, "tests/goldens/performance");
 const updateGoldens = process.env.UPDATE_PERFORMANCE_GOLDENS === "1";
 const rawBundleBudgetBytes = 169_000;
 const gzipBundleBudgetBytes = 45_900;
-const npmPackBudgetBytes = 64_000;
+const npmPackBudgetBytes = 65_000;
 
 interface CliInvocation {
   name: "source" | "bundle" | "shim";

@@ -47,7 +47,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = normalizeCliErrorMessage(
+      error instanceof Error ? error.message : String(error),
+    );
     const suggestion = cliErrorSuggestion(error, message, argv);
     const exitCode = lockExitCode(error) ?? 1;
     if (argv.includes("--json")) {
@@ -59,6 +61,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   } finally {
     await maybePrintUpdateNotice({ argv });
   }
+}
+
+function normalizeCliErrorMessage(message: string): string {
+  return message.replace(/^error:\s*/i, "");
 }
 
 function cliErrorCode(error: unknown): string {

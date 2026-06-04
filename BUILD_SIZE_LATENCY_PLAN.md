@@ -12,6 +12,8 @@ This plan has two optimization axes:
   accidental runtime dependency surface.
 - Minimize common command latency. Faster `acquire`, `refresh`, `release`, `status`, `git begin`,
   and related commands, especially in the no-conflict and small-lock-set cases.
+  Treat this as two scoreboards: fixed startup/module-load overhead for the common 0-1-lock case,
+  and large-active-set scaling for 10/100/1000-lock cases.
 
 Lower is better on both axes, but not at the cost of lock correctness. A fast lock tool that silently
 breaks advisory coordination is a regression.
@@ -22,9 +24,10 @@ Primary operating target:
 
 - Keep the npm-installed CLI as a single Node-runnable bundle.
 - Drive raw bundle bytes down every round unless a measured latency/correctness win justifies the
-  bytes.
+  bytes. Raw bytes are the V8 parse/startup proxy; gzip and packed bytes are the ship/install
+  proxy and are reported as separate tie-breakers.
 - Drive common command p50 and p95 wall time down every round, with startup cost separated from
-  lock-operation cost.
+  lock-operation cost. Do not treat the Node startup floor as addressable by lock-core changes.
 - Preserve the public CLI contract, generated agent instructions, JSON schemas, exit codes, and
   golden help text unless a deliberate contract change is made in place.
 - Commit each unit-tested logic chunk on `main` per `AGENTS.md`.
@@ -50,8 +53,10 @@ subtracting two unrelated means:
 paired_delta_ms[i] = command_latency_ms[i] - adjacent_node_floor_ms[i]
 ```
 
-The improvement claim is valid only when the bootstrap confidence interval for the paired delta
-change excludes zero and p95 does not regress beyond the variance envelope.
+The improvement claim is valid only when the bootstrap confidence interval for the paired-delta
+change excludes zero and p95 does not regress beyond the committed variance envelope in
+`analyses/performance-baseline/thresholds.json`. A full-sweep win also needs either two independent
+measurement sessions or an explicit multiple-comparison correction.
 
 ## Current Baseline
 
@@ -143,17 +148,18 @@ Use anchored scales so two agents can reproduce the same decision:
 
 | Factor | Scale |
 | --- | --- |
-| Impact | 1 = <2 KB or <2 ms, 2 = 2-5 KB or 2-5 ms, 3 = 5-15 KB or 5-10 ms, 4 = 15-30 KB or 10-20 ms, 5 = >30 KB or >20 ms |
+| Size impact | 1 = <1% raw bundle, 2 = 1-3%, 3 = 3-8%, 4 = 8-15%, 5 = >15% |
+| Latency impact | 1 = <5% of addressable paired delta, 2 = 5-10%, 3 = 10-20%, 4 = 20-35%, 5 = >35% |
 | Confidence | 1 = hypothesis only, 2 = source evidence, 3 = one local measurement, 4 = repeated local measurement + tests, 5 = repeated measurement + attribution + regression guard |
 | Effort | 1 = one small file/test, 2 = local refactor, 3 = cross-module change, 4 = parser/registry behavior change, 5 = broad rewrite or new dependency |
 
 Apply the `score >= 2.0` gate independently per axis: keep a size scoreboard and a latency
 scoreboard. A candidate touching both axes is scored on the axis it primarily moves, with the other
 axis recorded as a side effect. The side-effect axis must also clear a no-regression bar: bundle
-and pack bytes must not increase, and paired latency p50/p95 must stay within the variance envelope,
-or the candidate is rejected regardless of its primary-axis score. Each passing logic chunk gets its
-own commit after `bun run check`, per repository policy. Do not bundle parser rewrites, registry I/O
-changes, and bundle-script changes into one commit.
+and pack bytes must not increase, and paired latency p50/p95 must stay within the committed
+variance envelope, or the candidate is rejected regardless of its primary-axis score. Each passing
+logic chunk gets its own commit after `bun run check`, per repository policy. Do not bundle parser
+rewrites, registry I/O changes, and bundle-script changes into one commit.
 
 ### Gate 4: No Compatibility Layers
 
@@ -289,6 +295,10 @@ git diff --quiet -- . && git diff --cached --quiet -- . || {
   echo "Phase 0 baseline must run from a clean committed checkout. Commit or stash all local work, including this plan, before measuring." >&2
   exit 1
 }
+test -z "$(git status --porcelain --untracked-files=all)" || {
+  echo "Phase 0 baseline must include no untracked files. Commit or remove local work before measuring." >&2
+  exit 1
+}
 bun --version
 node --version
 bun run build
@@ -316,9 +326,10 @@ Benchmark requirements:
   sample.
 - Record p50, p95, min, max, sample count, bootstrap confidence interval, git SHA, host, Node,
   Bun, and command.
-- Record load average and run-to-run startup-floor drift. Reject runs whose `node -e ''` median
-  drifts beyond the configured variance envelope between interleaved blocks, and replicate material
-  wins across two independent sessions before treating sub-5 ms changes as real.
+- Record load average and run-to-run startup-floor drift. Reject runs whose interleaved `node -e ''`
+  block median drifts by more than the committed threshold (currently >8% relative or >5 ms
+  absolute). Replicate claimed wins across two independent sessions unless a multiple-comparison
+  correction is recorded.
 - Benchmark both direct invocation (`node dist/agentlocks.mjs`) and the installed bin shim from a
   dry-run package install or equivalent local shim path.
 - Include scaling cases with 0, 1, 10, 100, and 1000 active locks.
@@ -330,6 +341,7 @@ Outputs:
 - `analyses/performance-baseline/size.json`
 - `analyses/performance-baseline/latency.json`
 - `analyses/performance-baseline/summary.md`
+- `analyses/performance-baseline/thresholds.json`
 
 Exit gate:
 
@@ -359,15 +371,18 @@ Work items:
 - Build a conformance matrix from current CLI contracts and tests.
 - Add a package dry-run golden or structural assertion for packed entries and bundle mode.
 - Confirm generated instruction text stays aligned with the public CLI surface.
+- Add `git begin` and `git end` JSON/id-only golden coverage because they are core latency targets.
 - Add a conflict-semantics conformance row for stale-but-not-dead overlapping locks: they must
   still block acquire unless the liveness probe classifies them as dead/reclaimable.
 - Add an invariant row for liveness probe gating: the existing `findConflicts` overlap check must
-  continue to use the same `conflictingResources` predicate that constructs conflict resources, so a
-  cheaper overlap heuristic cannot silently widen probe-skipping.
+  continue to use the same `conflictingResources` predicate that constructs conflict resources, and
+  `classifyLock` must not invoke a liveness probe for a non-expired overlapping lock.
 - The liveness invariant test should track two separate sets across randomized resource/lock
   fixtures: classified locks are exactly `{ lock | conflictingResources(requested, lock.resources).length > 0 }`,
   and session-probed locks are exactly `{ lock | overlap(lock) && Date.parse(lock.leaseExpiresAt) < now }`.
   Non-expired overlapping locks should be classified as held without invoking the liveness probe.
+- Add a cross-process contention conformance row for the built bundle: spawn N separate
+  `node dist/agentlocks.mjs acquire <same-resource>` processes and assert exactly one winner.
 
 Exit gate:
 
@@ -407,7 +422,7 @@ Opportunity matrix:
 
 | Candidate | Size impact | Latency impact | Confidence | Effort | Score | Decision |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Replace all `package.json` imports with generated name/version constants | TBD | Low | TBD | TBD | TBD | Must remove all three import sites: `program.ts`, `capabilities.ts`, `update-notice.ts` |
+| Replace all `package.json` imports with build-time injected name/version constants | TBD | Low | TBD | TBD | TBD | Must remove all three import sites: `program.ts`, `capabilities.ts`, `update-notice.ts`; release path must fail if bundled version diverges from `package.json` |
 | Reduce or generate hook script payloads | TBD | Low | TBD | TBD | TBD | TBD |
 | Replace Commander with a minimal parser | TBD | High | TBD | TBD | TBD | TBD |
 | Simplify duplicated renderers or schemas | TBD | Medium | TBD | TBD | TBD | TBD |
@@ -474,11 +489,12 @@ Owner: Codex implements; Claude reviews the plan/diff if the candidate is broad.
 
 Pick the highest-scoring size candidate. Likely candidates, pending Phase 2 evidence:
 
-- Replace every `package.json` import with a tiny committed `src/version.ts` that exports the
-  package `name` and `version`, plus a test or CI script that asserts those constants equal
-  `package.json`. All current import sites must be removed together (`src/cli/program.ts`,
-  `src/cli/capabilities.ts`, and `src/cli/update-notice.ts`) or Bun will still inline the full
-  package object and save zero bytes.
+- Replace every `package.json` import with build-time injected package `name` and `version`
+  constants read by `scripts/build-bundle.mjs` from `package.json` and passed through Bun `--define`,
+  plus ambient declarations for typecheck. All current import sites must be removed together
+  (`src/cli/program.ts`, `src/cli/capabilities.ts`, and `src/cli/update-notice.ts`) or Bun will
+  still inline the full package object and save zero bytes. A committed constant is acceptable only
+  if `build`/`prepack` itself asserts it equals `package.json`.
 - Shrink embedded generated scripts without changing generated output.
 - Remove unreachable code from the production entry.
 - Collapse duplicated output helpers that survive minification poorly.
@@ -496,6 +512,7 @@ Behavior proof:
 Golden outputs:
 Conformance rows affected:
 Bundle string check: package metadata strings such as `devDependencies` and `packageManager` absent when the version-constant candidate claims success.
+Contention proof, if registry mutex/write path changed:
 Rollback command: git revert <sha>
 ```
 
@@ -519,13 +536,16 @@ Pick the highest-scoring latency candidate. Likely candidates, pending Phase 3 e
 - Optimize status and conflict matching for large active-lock sets.
 - Optimize registry sorts for large active-lock sets, including replacing `localeCompare` only after
   a differential characterization test proves the replacement comparator produces identical
-  ordering for a randomized corpus of valid lock ids. Change both lock-id sort sites together and do
-  not extend the comparator to user-supplied resource paths. Pin ordering with the differential test
-  and `status --json` golden.
+  ordering for a randomized corpus drawn from the actual lock-id generator alphabet plus adversarial
+  mixed digit/case/boundary ids. Change both lock-id sort sites together and do not extend the
+  comparator to user-supplied resource paths. Pin ordering with the differential test and
+  `status --json` golden.
 - Avoid unnecessary sibling lease scans on no-conflict mutations.
-- Do not re-implement the liveness-probe overlap gate. `findConflicts` already skips probes only
-  when `conflictingResources` returns no overlap; the work item is to guard that invariant with a
-  conformance/metamorphic test, not to add a new heuristic.
+- Do not re-implement the liveness-probe gate. Preserve both predicates: `findConflicts` classifies
+  exactly the locks where `conflictingResources(requested, lock.resources).length > 0`, and
+  `classifyLock` invokes the session probe only when that overlapping lock's `leaseExpiresAt` is
+  before `now`. The work item is to guard that invariant with a conformance/metamorphic test, not to
+  add a new heuristic.
 - Reduce per-write `JSON.stringify(value, null, 2)` cost in lock writes only if profiling proves it
   matters. `formatJsonArtifact` does not sort. Tree-shaken helpers in `src/json.ts` are source
   hygiene only unless they measurably affect shipped bytes.
@@ -541,12 +561,14 @@ Paired command-vs-floor delta and bootstrap CI:
 Correctness proof:
 Golden outputs:
 Conformance rows affected:
+Contention proof, if registry mutex/write path/sibling scans changed:
 Rollback command: git revert <sha>
 ```
 
 Exit gate:
 
-- Common command latency improves in p50 and does not regress p95 beyond the variance envelope.
+- Common-command fixed overhead or large-active-set scaling improves in p50 and does not regress p95
+  beyond the committed variance envelope.
 - Scaling cases do not regress.
 - `bun run check` green.
 - Commit made if logic was implemented and unit tested.
@@ -582,8 +604,9 @@ Purpose: keep wins from drifting away.
 
 Work items:
 
-- Add a deterministic size-budget check for `dist/agentlocks.mjs`.
-- Add npm dry-run structural checks for packed entries.
+- Tighten the deterministic size-budget check for `dist/agentlocks.mjs` after the first accepted
+  size win.
+- Tighten npm dry-run structural checks for packed entries after Phase 1/2 structural checks exist.
 - Add benchmark script with JSON output.
 - Add a non-flaky latency budget only after enough samples exist to set a defensible threshold.
 - Prefer warning/report mode for latency in CI until variance is understood.
@@ -632,9 +655,9 @@ review_path="${CODEX_HOME:-$HOME/.codex}/artifacts/claude-agentlocks-build-size-
 review_log="${review_path%.md}.log"
 mkdir -p "$(dirname "$review_path")"
 claude -p "In the current repo, read BUILD_SIZE_LATENCY_PLAN.md and review it as an Agentlocks build-size and common-command latency improvement plan. Return exactly this structure: # Claude Review; ## Overall Score with <0-100>/100; ## Dimension Scores markdown table with rows Build-size leverage max 20, Latency rigor max 20, Measurement validity max 15, Correctness safety max 15, Skill integration max 10, Task decomposition max 10, Agentlocks policy compliance max 10; ## Findings sorted P0 then P1 then P2, each with Severity, Plan section, Problem, Concrete edit; ## Missing Tests Or Artifacts; ## Verdict using APPROVE only if score >= 85 and no P0/P1 findings, otherwise REVISE. Be adversarial and specific; focus on missed correctness risks, weak metrics, unrealistic latency goals, build-size blind spots, and bad sequencing." > "$review_path" 2> "$review_log"
-status=$?
-if [ "$status" -ne 0 ] || [ ! -s "$review_path" ] || ! grep -q '^## Overall Score' "$review_path"; then
-  printf 'Claude review failed or produced an unparsable artifact. status=%s review=%s log=%s\n' "$status" "$review_path" "$review_log" >&2
+claude_status=$?
+if [ "$claude_status" -ne 0 ] || [ ! -s "$review_path" ] || ! grep -q '^## Overall Score' "$review_path"; then
+  printf 'Claude review failed or produced an unparsable artifact. status=%s review=%s log=%s\n' "$claude_status" "$review_path" "$review_log" >&2
   exit 1
 fi
 printf 'CLAUDE_REVIEW_PATH=%s\n' "$review_path"
@@ -710,10 +733,11 @@ Do not add command aliases, prompt-optimization behavior, repository-specific de
 compatibility layers, migration paths, deprecated flags, or new dependencies without package-age
 evidence and a measured score that justifies the risk.
 
-Do not optimize liveness probing by changing conflict semantics. `findConflicts` already skips
-probes when `conflictingResources` finds zero overlap; preserve that predicate and add regression
-coverage. A stale overlapping lock remains a conflict unless the liveness probe classifies it as
-dead/reclaimable.
+Do not optimize liveness probing by changing conflict semantics. Preserve both predicates:
+`findConflicts` classifies exactly locks where
+`conflictingResources(requested, lock.resources).length > 0`, and `classifyLock` invokes the
+session probe only when that overlapping lock's `leaseExpiresAt` is before `now`. A stale
+overlapping lock remains a conflict unless the liveness probe classifies it as dead/reclaimable.
 ```
 
 ## Phase-To-Skill Routing
@@ -775,7 +799,7 @@ The order matters:
 6. Re-measure.
 7. Repeat.
 
-Do not start with the most dramatic rewrite. If a tiny generated-version constant saves bytes with
-near-zero risk, take that first. If replacing Commander saves both bytes and latency, it still waits
-until help, errors, JSON contracts, and generated docs are pinned tightly enough that a custom parser
-cannot drift unnoticed.
+Do not start with the most dramatic rewrite. If build-time injected package metadata saves bytes
+with near-zero release risk, take that first. If replacing Commander saves both bytes and latency,
+it still waits until help, errors, JSON contracts, and generated docs are pinned tightly enough that
+a custom parser cannot drift unnoticed.

@@ -3,6 +3,16 @@
 All notable changes to Agentlocks are documented here. Agentlocks is pre-release: schemas and the CLI
 contract change in place with no migration layer.
 
+## Unreleased
+
+### Changed
+
+- **Update notices surface new releases within an hour, not a day.** The npm registry check behind
+  the interactive stderr update notice now caches for one hour instead of twenty-four. The notice
+  already printed from cache on every eligible run; the shorter TTL only bounds how long a fresh
+  release can go unnoticed. The README freshness audit against 0.9.3 found this FAQ claim was the
+  only stale statement, and it now documents the every-run notice with the hourly check.
+
 ## 0.9.3
 
 ### Fixed

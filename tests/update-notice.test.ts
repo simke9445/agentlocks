@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -72,6 +72,78 @@ test("queries the unscoped agentlocks registry URL, not a scoped one", async () 
     expect(requestedUrl).toBe("https://registry.npmjs.org/agentlocks/latest");
     expect(requestedUrl).not.toContain("@simke9445");
     expect(requestedUrl).not.toContain("%2f");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("prints the notice from a fresh cache on every run without refetching", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-update-notice-"));
+  try {
+    const cachePath = path.join(workspace, "cache.json");
+    const now = new Date("2026-05-27T10:00:00Z");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        checkedAt: new Date(now.getTime() - 30 * 60 * 1000).toISOString(),
+        latestVersion: "0.1.2",
+      }),
+      "utf8",
+    );
+
+    let fetchCalled = false;
+    const stderr = captureStderr(true);
+    await maybePrintUpdateNotice({
+      cachePath,
+      currentVersion: "0.1.1",
+      env: { AGENTLOCKS_UPDATE_CHECK: "1" },
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return { ok: true, json: async () => ({ version: "0.1.2" }) };
+      },
+      now,
+      stderr,
+    });
+
+    expect(fetchCalled).toBe(false);
+    expect(stderr.output).toContain("New Agentlocks version available: 0.1.1 -> 0.1.2");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("refetches once the cache is older than an hour", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentlocks-update-notice-"));
+  try {
+    const cachePath = path.join(workspace, "cache.json");
+    const now = new Date("2026-05-27T10:00:00Z");
+    // Two hours old: stale under the 1h TTL, but fresh under the old 24h TTL. The
+    // cached version matches current, so only a real refetch can produce the notice.
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        checkedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+        latestVersion: "0.1.1",
+      }),
+      "utf8",
+    );
+
+    let fetchCalled = false;
+    const stderr = captureStderr(true);
+    await maybePrintUpdateNotice({
+      cachePath,
+      currentVersion: "0.1.1",
+      env: { AGENTLOCKS_UPDATE_CHECK: "1" },
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return { ok: true, json: async () => ({ version: "0.1.2" }) };
+      },
+      now,
+      stderr,
+    });
+
+    expect(fetchCalled).toBe(true);
+    expect(stderr.output).toContain("New Agentlocks version available: 0.1.1 -> 0.1.2");
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

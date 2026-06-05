@@ -483,11 +483,11 @@ stable source, Agentlocks falls back to a process-scoped id.
 
 ### How do users know when to update?
 
-Interactive Agentlocks commands check npm at most once per day and print a stderr notice when a
-newer version is available:
+Interactive Agentlocks commands print a stderr notice on every run while a newer version is
+available, checking npm at most once per hour:
 
 ```text
-New Agentlocks version available: 0.6.0 -> 0.6.1
+New Agentlocks version available: 0.9.2 -> 0.9.3
 Update with: bun update -g --latest agentlocks
 npm users: npm install -g agentlocks@latest
 ```

@@ -8,7 +8,9 @@ import { PACKAGE_NAME, PACKAGE_VERSION } from "../package-info";
 // scoped @simke9445/agentlocks, so every update check 404'd and the notice never
 // fired. npm's packument path keeps a literal scope "@" and encodes only "/" as "%2f".
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME.replaceAll("/", "%2f")}/latest`;
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// The cache throttles only the registry fetch (at most hourly); the notice itself
+// prints from the cached latest version on every eligible run until the user updates.
+const CACHE_TTL_MS = 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 750;
 
 type FetchLike = (
